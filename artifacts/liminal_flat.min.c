@@ -1,4 +1,4 @@
-/* LIMINAL_FLAT_MIN 20251231T202354Z */
+/* LIMINAL_FLAT_MIN 20251231T204229Z */
 /* -------- HEADERS -------- */
 //@header src/common/arena.h
 #ifndef LIMINAL_ARENA_H
@@ -3195,7 +3195,7 @@ static int cmd_run(int argc, char **argv)
         return 1;
     }
     /* ---- ARTIFACT EMISSION ---- */
-    if (emit_artifacts || emit_timeline) {
+    if (emit_artifacts || emit_timeline_flag) {
         time_t now = time(NULL);
         char run_id[64];
         if (run_id_override) {
@@ -3213,8 +3213,8 @@ static int cmd_run(int argc, char **argv)
         if (emit_artifacts) {
             artifact_emit_all(&ctx, &diagnostics);
         }
-       if (emit_timeline_flag) {
-            emit_timeline(u->head, artifact_root);
+        if (emit_timeline_flag) {
+          emit_timeline(u->head, stdout);
         }
     }
     ast_program_free(ast);

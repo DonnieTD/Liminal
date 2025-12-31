@@ -103,7 +103,7 @@ $(FLATTEN_MIN):
 	@echo "/* LIMINAL_FLAT_MIN $$(date -u +%Y%m%dT%H%M%SZ) */" > $@
 
 	@echo "/* -------- HEADERS -------- */" >> $@
-	@for dir in common executor analyzer consumers frontends; do \
+	@for dir in common executor analyzer consumers frontends commands policy; do \
 		find src/$$dir -name '*.h' -type f | sort | while read f; do \
 			echo "//@header $$f" >> $@; \
 			sed '/^[[:space:]]*$$/d' $$f >> $@; \
@@ -111,7 +111,7 @@ $(FLATTEN_MIN):
 	done
 
 	@echo "/* -------- SOURCES -------- */" >> $@
-	@for dir in common executor analyzer consumers frontends; do \
+	@for dir in common executor analyzer consumers frontends commands policy; do \
 		find src/$$dir -name '*.c' -type f | sort | while read f; do \
 			echo "//@source $$f" >> $@; \
 			sed '/^[[:space:]]*$$/d' $$f >> $@; \
@@ -120,3 +120,22 @@ $(FLATTEN_MIN):
 
 	@echo "//@source src/main.c" >> $@
 	@sed '/^[[:space:]]*$$/d' src/main.c >> $@
+
+# ------------------------------------------------------------
+# Flattened samples (single-file per sample)
+# ------------------------------------------------------------
+
+SAMPLE_FLAT_DIR := artifacts/samples
+
+.PHONY: flatten-samples
+
+flatten-samples:
+	@mkdir -p $(SAMPLE_FLAT_DIR)
+	@for f in $(SAMPLES); do \
+		name=$$(basename $$f .c); \
+		out="$(SAMPLE_FLAT_DIR)/$$name.flat.c"; \
+		echo "/* LIMINAL SAMPLE $$name */" > $$out; \
+		echo "/* Generated: $$(date) */" >> $$out; \
+		echo "" >> $$out; \
+		cat $$f >> $$out; \
+	done

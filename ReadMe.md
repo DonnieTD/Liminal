@@ -323,12 +323,185 @@ Future work:
 ## Stage 7: Cross-Run Reasoning (Planned)
 
 Responsibility:
-Compare realities.
+Compare semantic realities across executions.
+
+Stage 7 operates exclusively on emitted artifacts.
+It never re-executes code, parses source, or inspects ASTs.
 
 This stage enables:
+- semantic diffing between runs
 - regression detection
-- exploit delta analysis
 - semantic drift tracking
+- exploit delta analysis
+- time-based behavior comparison
+
+Cross-run reasoning treats each execution as a completed reality and asks:
+
+What changed between these realities, and when did meaning diverge?
+
+Primary inputs:
+- meta.json
+- diagnostics.ndjson
+- timeline.ndjson
+
+Primary outputs:
+- diagnostic diffs
+- regression reports
+- timeline divergence summaries
+- exploit surface deltas
+
+Stage 7 establishes the foundation for security, regression, and exploit research
+without speculation or symbolic execution.
+
+---
+
+## Post-Stage 7 Development Phases
+
+Once Stage 7 exists, further progress follows semantic expansion, not feature accretion.
+
+The roadmap deliberately avoids premature lexer or language completeness.
+
+### Phase A: Cross-Run Calibration (Current)
+
+Goal:
+Validate that semantic comparison is stable and meaningful.
+
+Activities:
+- build a small curated corpus of example programs
+- run repeated executions with controlled changes
+- validate diagnostic identity stability
+- validate timeline diff behavior
+- ensure regressions and drift are detectable without heuristics
+
+No new semantics are added in this phase.
+
+Exit condition:
+Cross-run diffs reliably detect semantic change when meaning changes,
+and remain stable when it does not.
+
+---
+
+### Phase B: Semantic Expansion (Before Syntax Expansion)
+
+#### Phase B1: Memory Semantics (Existence, Not Bytes)
+
+Goal:
+Enable lifetime-based reasoning without implementing concrete memory models.
+
+Scope:
+- allocation events
+- deallocation events
+- alias creation
+- lifetime invalidation
+
+Explicitly out of scope:
+- pointer arithmetic
+- concrete addresses
+- memory layouts
+- byte-level modeling
+
+This phase enables detection of:
+- use-after-free
+- double-free
+- stale alias use
+- lifetime leaks
+
+Exit condition:
+Cross-run reasoning can detect changes in memory lifetime semantics.
+
+---
+
+#### Phase B2: Control-Flow Shape (Time, Not Logic)
+
+Goal:
+Make execution shape and temporal structure observable.
+
+Scope:
+- conditional entry and exit
+- loop iteration
+- early return
+- structured control regions
+
+Explicitly out of scope:
+- condition evaluation
+- symbolic branching
+- speculative execution
+
+This phase enables detection of:
+- dead code activation
+- unexpected control flow
+- temporal regressions
+- time-of-check/time-of-use gaps
+
+Exit condition:
+Timeline diffs can identify where and when execution diverged.
+
+---
+
+### Phase C: Lexer and Parser Expansion (Driven by Semantics)
+
+Goal:
+Support real-world C examples without premature language completeness.
+
+Rules:
+- syntax is added only when corresponding semantics exist
+- every new AST node must map to a semantic event
+- grammar growth is corpus-driven
+
+Exit condition:
+Realistic vulnerable C snippets can be represented faithfully,
+even if incompletely.
+
+---
+
+### Phase D: Exploit-Class Coverage
+
+Goal:
+Transition from bug detection to exploit research.
+
+Activities:
+- curate exploit-focused C corpora
+- map exploit classes to semantic patterns
+- track exploit surface changes across runs
+
+Exploit classes include:
+- use-after-free
+- double-free
+- shadowing-based authority confusion
+- temporal safety violations
+- control-flow misuse
+
+Exit condition:
+Stage 7 can answer:
+
+Did this change increase, decrease, or alter the semantic attack surface?
+
+At this point, Liminal operates as an exploit research engine,
+not a static analyzer.
+
+---
+
+## Roadmap Clarification
+
+Language completeness is not a goal.
+
+Semantic observability is the primary axis of progress.
+
+Every new feature must:
+- produce observable semantic events
+- survive cross-run comparison
+- strengthen time-based reasoning
+
+---
+
+## Summary
+
+Stages 1 through 6 establish semantic execution and time visibility.
+
+Stage 7 enables comparison between semantic realities.
+
+Phases A through D define the path from execution engine
+to exploit research platform.
 
 ---
 
@@ -349,7 +522,7 @@ This stage enables:
 - Stage 3: DONE
 - Stage 4: DONE
 - Stage 5: DONE
-- Stage 6: PARTIAL (timeline emission + policy gating)
+- Stage 6: DONE
 - Stage 7: PLANNED
 
 ---
