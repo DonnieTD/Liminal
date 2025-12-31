@@ -1,4 +1,96 @@
-/* LIMINAL_FLAT_MIN 20251231T164251Z */
+/* LIMINAL_FLAT_MIN 20251231T173151Z */
+//@header src/analyzer/constraint.h
+#pragma once
+#include <stdint.h>
+#include <stddef.h>
+/*
+ * ConstraintKind
+ *
+ * Enumerates semantic invariants derived from execution.
+ *
+ * Constraints are NOT diagnostics.
+ * They express facts about semantic reality.
+ */
+typedef enum ConstraintKind {
+    CONSTRAINT_USE_REQUIRES_DECLARATION,
+    CONSTRAINT_REDECLARATION,
+    CONSTRAINT_SHADOWING
+} ConstraintKind;
+/*
+ * Constraint
+ *
+ * A single semantic invariant statement.
+ */
+typedef struct Constraint {
+    ConstraintKind kind;
+    uint64_t time;
+    uint64_t scope_id;
+    uint64_t storage_id;
+} Constraint;
+/*
+ * ConstraintArtifact
+ *
+ * Output of the constraint engine.
+ */
+typedef struct ConstraintArtifact {
+    Constraint *items;
+    size_t count;
+} ConstraintArtifact;
+//@header src/analyzer/constraint_declaration.h
+//@header src/analyzer/constraint_declaration.h
+#ifndef LIMINAL_CONSTRAINT_DECLARATION_H
+#define LIMINAL_CONSTRAINT_DECLARATION_H
+#include "analyzer/constraint.h"
+struct World;
+/*
+ * Declaration-related constraint extraction.
+ *
+ * Emits:
+ *   - CONSTRAINT_REDECLARATION
+ *   - CONSTRAINT_SHADOWING
+ */
+ConstraintArtifact analyze_declaration_constraints(struct World *head);
+#endif /* LIMINAL_CONSTRAINT_DECLARATION_H */
+//@header src/analyzer/constraint_diagnostic.h
+#pragma once
+#include <stddef.h>
+#include "analyzer/constraint.h"
+#include "analyzer/diagnostic.h"
+/*
+ * Project constraints into diagnostics.
+ *
+ * Returns number of diagnostics written.
+ */
+size_t constraint_to_diagnostic(
+    const ConstraintArtifact *constraints,
+    Diagnostic *out,
+    size_t cap
+);
+//@header src/analyzer/constraint_engine.h
+#ifndef LIMINAL_CONSTRAINT_ENGINE_H
+#define LIMINAL_CONSTRAINT_ENGINE_H
+#include "analyzer/constraint.h"
+#include "executor/world.h"
+/*
+ * Constraint engine entry point.
+ *
+ * Consumes a World timeline and produces semantic constraints.
+ */
+ConstraintArtifact analyze_constraints(struct World *head);
+#endif /* LIMINAL_CONSTRAINT_ENGINE_H */
+//@header src/analyzer/constraint_variable.h
+#ifndef LIMINAL_CONSTRAINT_VARIABLE_H
+#define LIMINAL_CONSTRAINT_VARIABLE_H
+#include "analyzer/constraint.h"
+#include "executor/world.h"
+/*
+ * Variable-related constraint extraction.
+ *
+ * Emits:
+ *   - CONSTRAINT_REDECLARATION
+ */
+ConstraintArtifact analyze_variable_constraints(struct World *head);
+#endif
 //@header src/analyzer/diagnostic.h
 #pragma once
 #include <stdint.h>
@@ -49,29 +141,6 @@ size_t lifetime_collect_scopes(struct World *head,
                                ScopeLifetime *out,
                                size_t cap);
 #endif /* LIMINAL_LIFETIME_H */
-//@header src/analyzer/shadow.h
-#ifndef ANALYZER_SHADOW_H
-#define ANALYZER_SHADOW_H
-#include <stddef.h>
-#include <stdint.h>
-#include "analyzer/diagnostic.h"
-struct World;
-/*
- * Analyze variable shadowing and redeclaration.
- *
- * Emits diagnostics:
- *  - DIAG_REDECLARATION
- *  - DIAG_SHADOWING
- *
- * Returns number of diagnostics written
- * (or that would be written if out == NULL).
- */
-size_t analyze_shadowing(
-    struct World *head,
-    Diagnostic *out,
-    size_t cap
-);
-#endif /* ANALYZER_SHADOW_H */
 //@header src/analyzer/trace.h
 #ifndef LIMINAL_TRACE_H
 #define LIMINAL_TRACE_H
@@ -157,16 +226,6 @@ typedef struct UseReport {
     UseKind  kind;
 } UseReport;
 #endif
-//@header src/analyzer/use_validate.h
-#pragma once
-#include <stddef.h>
-#include "executor/world.h"        // ✅ REQUIRED
-#include "analyzer/diagnostic.h"
-size_t analyze_use_validation(
-    struct World *head,
-    Diagnostic *out,
-    size_t cap
-);
 //@header src/analyzer/validate.h
 #ifndef LIMINAL_VALIDATE_H
 #define LIMINAL_VALIDATE_H
@@ -762,18 +821,209 @@ int   lexer_accept(Lexer *lx, TokKind k);
  */
 ASTProgram *parse_translation_unit(Lexer *lx);
 #endif /* LIMINAL_C_PARSER_H */
+//@source src/analyzer/constraint_declaration.c
+//@source src/analyzer/constraint_declaration.c
+#include "analyzer/constraint.h"
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include "executor/scope.h"
+#include "common/hashmap.h"
+#include "frontends/c/ast.h"
+#include <stdlib.h>
+#include <stdint.h>
+static int scope_has_name(Scope *s, const char *name)
+{
+    return s && s->bindings && hashmap_get(s->bindings, name);
+}
+ConstraintArtifact analyze_declaration_constraints(struct World *head)
+{
+    size_t cap = 64;
+    Constraint *buf = calloc(cap, sizeof(Constraint));
+    size_t count = 0;
+    if (!buf || !head) {
+        return (ConstraintArtifact){ .items = NULL, .count = 0 };
+    }
+    Trace t = trace_begin(head);
+    while (trace_is_valid(&t)) {
+        World *w = trace_current(&t);
+        Step  *s = w ? w->step : NULL;
+        if (!s || s->kind != STEP_DECLARE) {
+            trace_next(&t);
+            continue;
+        }
+        World *prev = w->prev;
+        if (!prev || !prev->active_scope)
+            goto next;
+        Scope *cur = prev->active_scope;
+        const char *name = NULL;
+        /* Extract name from AST origin (safe for now) */
+        if (s->origin) {
+            ASTNode *n = (ASTNode *)s->origin;
+            name = n->as.vdecl.name;
+        }
+        if (!name)
+            goto next;
+        /* 1. Redeclaration in same scope */
+        if (scope_has_name(cur, name) && count < cap) {
+            buf[count++] = (Constraint){
+                .kind       = CONSTRAINT_REDECLARATION,
+                .time       = w->time,
+                .scope_id   = cur->id,
+                .storage_id = s->info
+            };
+            goto next;
+        }
+        /* 2. Shadowing parent scope */
+        for (Scope *p = cur->parent; p; p = p->parent) {
+            if (scope_has_name(p, name) && count < cap) {
+                buf[count++] = (Constraint){
+                    .kind       = CONSTRAINT_SHADOWING,
+                    .time       = w->time,
+                    .scope_id   = cur->id,
+                    .storage_id = s->info
+                };
+                break;
+            }
+        }
+    next:
+        trace_next(&t);
+    }
+    return (ConstraintArtifact){
+        .items = buf,
+        .count = count
+    };
+}
+//@source src/analyzer/constraint_diagnostic.c
+#include "analyzer/constraint.h"
+#include "analyzer/diagnostic.h"
+/*
+ * Map semantic constraints to human-facing diagnostics.
+ *
+ * This file MUST contain:
+ *  - no analysis
+ *  - no world traversal
+ *  - no execution logic
+ *
+ * It is a pure projection layer.
+ */
+size_t constraint_to_diagnostic(
+    const ConstraintArtifact *constraints,
+    Diagnostic *out,
+    size_t cap
+) {
+    size_t count = 0;
+    for (size_t i = 0; i < constraints->count && count < cap; i++) {
+        const Constraint *c = &constraints->items[i];
+        switch (c->kind) {
+        case CONSTRAINT_REDECLARATION:
+            out[count++] = (Diagnostic){
+                .kind = DIAG_REDECLARATION,
+                .time = c->time,
+                .scope_id = c->scope_id,
+                .previous_scope_id = c->scope_id,
+                .name = NULL,
+                .origin = NULL,
+                .previous_origin = NULL
+            };
+            break;
+        default:
+            /* Unknown constraint — intentionally ignored */
+            break;
+        }
+    }
+    return count;
+}//@source src/analyzer/constraint_engine.c
+#include "analyzer/constraint_engine.h"
+#include "analyzer/constraint_variable.h"
+#include "analyzer/constraint_declaration.h"
+#include <stdlib.h>
+#include <string.h>
+ConstraintArtifact analyze_constraints(struct World *head)
+{
+    ConstraintArtifact a = analyze_variable_constraints(head);
+    ConstraintArtifact b = analyze_declaration_constraints(head);
+    /* Temporary merge (Stage 4 discipline) */
+    size_t total = a.count + b.count;
+    Constraint *buf = calloc(total, sizeof(Constraint));
+    if (!buf)
+        return a;
+    memcpy(buf, a.items, a.count * sizeof(Constraint));
+    memcpy(buf + a.count, b.items, b.count * sizeof(Constraint));
+    free(a.items);
+    free(b.items);
+    return (ConstraintArtifact){
+        .items = buf,
+        .count = total
+    };
+}
+//@source src/analyzer/constraint_scope.c
+//@source src/analyzer/constraint_variable.c
+#include "analyzer/constraint_variable.h"
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include <stdlib.h>
+#include <stdint.h>
+ConstraintArtifact analyze_variable_constraints(struct World *head)
+{
+    /* Empty artifact for degenerate cases */
+    if (!head) {
+        return (ConstraintArtifact){
+            .items = NULL,
+            .count = 0
+        };
+    }
+    /* Fixed-cap temporary buffer (Stage 4.x discipline) */
+    size_t cap = 64;
+    Constraint *buf = calloc(cap, sizeof(Constraint));
+    size_t count = 0;
+    if (!buf) {
+        return (ConstraintArtifact){
+            .items = NULL,
+            .count = 0
+        };
+    }
+    Trace t = trace_begin(head);
+    while (trace_is_valid(&t)) {
+        World *w = trace_current(&t);
+        Step  *s = w ? w->step : NULL;
+        if (s && s->kind == STEP_USE) {
+            /* Unresolved variable use → constraint */
+            if (s->info == UINT64_MAX && count < cap) {
+                buf[count++] = (Constraint){
+                    .kind       = CONSTRAINT_USE_REQUIRES_DECLARATION,
+                    .time       = w->time,
+                    .scope_id   = 0,           /* scope not required yet */
+                    .storage_id = UINT64_MAX
+                };
+            }
+        }
+        trace_next(&t);
+    }
+    return (ConstraintArtifact){
+        .items = buf,
+        .count = count
+    };
+}
 //@source src/analyzer/diagnostic.c
 #include "analyzer/diagnostic.h"
-#include "analyzer/shadow.h"
-#include "analyzer/use_validate.h"
+#include "analyzer/constraint_engine.h"
+#include "analyzer/constraint_diagnostic.h"
 #include <stdlib.h>
 DiagnosticArtifact analyze_diagnostics(struct World *head)
 {
-    size_t cap = 128;
-    Diagnostic *buf = calloc(cap, sizeof(Diagnostic));
+    Diagnostic *buf = calloc(256, sizeof(Diagnostic));
     size_t count = 0;
-    count += analyze_shadowing(head, buf + count, cap - count);
-    count += analyze_use_validation(head, buf + count, cap - count);
+    /* --- Canonical semantic path --- */
+    ConstraintArtifact constraints = analyze_constraints(head);
+    count += constraint_to_diagnostic(
+        &constraints,
+        buf + count,
+        256 - count
+    );
+    /* --- Temporary legacy path (shadowing only) --- */
+    // count += analyze_shadowing(head, buf + count, 256 - count);
     return (DiagnosticArtifact){
         .items = buf,
         .count = count
@@ -864,159 +1114,6 @@ size_t lifetime_collect_scopes(struct World *head,
         trace_next(&t);
     }
     return n;
-}
-//@source src/analyzer/shadow.c
-#include "analyzer/shadow.h"
-#include "executor/world.h"
-#include "executor/step.h"
-#include "frontends/c/ast.h"
-#include "common/hashmap.h"
-#include "common/arena.h"
-#include "analyzer/diagnostic.h"
-#include <stdlib.h>
-#define MAX_SCOPE_DEPTH 64
-#define SHADOW_BUCKETS 32
-/* ---------------------------------------------------------
- * Analyzer-owned arena
- *
- * Shadow analysis memory is process-lifetime.
- * This arena is never reset or destroyed (by design).
- * --------------------------------------------------------- */
-static Arena shadow_arena;
-static int shadow_arena_initialized = 0;
-static void ensure_shadow_arena(void)
-{
-    if (!shadow_arena_initialized) {
-        arena_init(&shadow_arena, 64 * 1024);
-        shadow_arena_initialized = 1;
-    }
-}
-/* ---------------------------------------------------------
- * Per-scope declaration record (internal only)
- * --------------------------------------------------------- */
-typedef struct ShadowDecl {
-    const char    *name;
-    uint64_t       scope_id;
-    uint64_t       time;
-    const ASTNode *origin;
-} ShadowDecl;
-typedef struct ShadowFrame {
-    uint64_t scope_id;
-    HashMap *decls; /* name -> ShadowDecl* */
-} ShadowFrame;
-/* --------------------------------------------------------- */
-static ShadowFrame shadow_frame_new(uint64_t scope_id)
-{
-    ensure_shadow_arena();
-    ShadowFrame f;
-    f.scope_id = scope_id;
-    f.decls = hashmap_create(&shadow_arena, SHADOW_BUCKETS);
-    return f;
-}
-/* No-op by design: arena-backed, process-lifetime */
-static void shadow_frame_free(ShadowFrame *f)
-{
-    (void)f;
-}
-/* ---------------------------------------------------------
- * Extract variable name from STEP_DECLARE origin
- * --------------------------------------------------------- */
-static const char *decl_name_from_step(const Step *s)
-{
-    if (!s || !s->origin)
-        return NULL;
-    const ASTNode *n = (const ASTNode *)s->origin;
-    if (n->kind != AST_VAR_DECL)
-        return NULL;
-    return n->as.vdecl.name;
-}
-/* --------------------------------------------------------- */
-size_t analyze_shadowing(
-    struct World *head,
-    Diagnostic *out,
-    size_t cap
-) {
-    ShadowFrame stack[MAX_SCOPE_DEPTH];
-    size_t depth = 0;
-    size_t count = 0;
-    for (World *w = head; w; w = w->next) {
-        Step *s = w->step;
-        if (!s)
-            continue;
-        switch (s->kind) {
-        case STEP_ENTER_SCOPE:
-            if (depth < MAX_SCOPE_DEPTH) {
-                stack[depth++] = shadow_frame_new(s->info);
-            }
-            break;
-        case STEP_EXIT_SCOPE:
-            if (depth > 0) {
-                shadow_frame_free(&stack[--depth]);
-            }
-            break;
-        case STEP_DECLARE: {
-            if (depth == 0)
-                break;
-            const char *name = decl_name_from_step(s);
-            if (!name)
-                break;
-            ShadowFrame *cur = &stack[depth - 1];
-            /* 1. Redeclaration in same scope */
-            ShadowDecl *existing = hashmap_get(cur->decls, name);
-            if (existing) {
-                if (out && count < cap) {
-                    out[count] = (Diagnostic){
-                        .kind = DIAG_REDECLARATION,
-                        .time = w->time,
-                        .scope_id = cur->scope_id,
-                        .previous_scope_id = cur->scope_id,
-                        .name = name,
-                        .origin = s->origin,
-                        .previous_origin = existing->origin
-                    };
-                }
-                count++;
-                break;
-            }
-            /* 2. Shadowing outer scopes */
-            for (size_t i = depth - 1; i-- > 0;) {
-                ShadowFrame *parent = &stack[i];
-                ShadowDecl *outer = hashmap_get(parent->decls, name);
-                if (outer) {
-                    if (out && count < cap) {
-                        out[count] = (Diagnostic){
-                            .kind = DIAG_SHADOWING,
-                            .time = w->time,
-                            .scope_id = cur->scope_id,
-                            .previous_scope_id = parent->scope_id,
-                            .name = name,
-                            .origin = s->origin,
-                            .previous_origin = outer->origin
-                        };
-                    }
-                    count++;
-                    break;
-                }
-            }
-            /* Record declaration */
-            ShadowDecl *decl =
-                arena_alloc(&shadow_arena, sizeof(ShadowDecl));
-            if (!decl)
-                break;
-            *decl = (ShadowDecl){
-                .name = name,
-                .scope_id = cur->scope_id,
-                .time = w->time,
-                .origin = s->origin
-            };
-            hashmap_put(cur->decls, name, decl);
-            break;
-        }
-        default:
-            break;
-        }
-    }
-    return count;
 }
 //@source src/analyzer/trace.c
 #include "analyzer/trace.h"
@@ -1127,46 +1224,6 @@ size_t analyze_step_use(
         }
     next:
         trace_next(&t);
-    }
-    return count;
-}
-//@source src/analyzer/use_validate.c
-#include "analyzer/use_validate.h"
-#include "analyzer/use.h"
-#include "analyzer/lifetime.h"
-#include "executor/world.h"
-size_t analyze_use_validation(
-    struct World *head,
-    Diagnostic *out,
-    size_t cap
-) {
-    ScopeLifetime lifetimes[128];
-    size_t lt_count = lifetime_collect_scopes(head, lifetimes, 128);
-    UseReport uses[128];
-    size_t use_count = analyze_step_use(
-        head,
-        lifetimes,
-        lt_count,
-        uses,
-        128
-    );
-    size_t count = 0;
-    for (size_t i = 0; i < use_count && count < cap; i++) {
-        const UseReport *u = &uses[i];
-        if (u->kind == USE_OK)
-            continue;
-        out[count++] = (Diagnostic){
-            .kind =
-                (u->kind == USE_BEFORE_DECLARE)
-                    ? DIAG_USE_BEFORE_DECLARE
-                    : DIAG_USE_AFTER_SCOPE_EXIT,
-            .time = u->time,
-            .scope_id = u->scope_id,
-            .previous_scope_id = 0,
-            .name = NULL,
-            .origin = NULL,
-            .previous_origin = NULL
-        };
     }
     return count;
 }
@@ -2308,12 +2365,12 @@ static uint32_t parse_statement(ASTProgram *p, Lexer *lx)
 #include "executor/scope.h"
 #include "analyzer/trace.h"
 #include "analyzer/use.h"
-#include "analyzer/shadow.h"
 #include "frontends/c/ast.h"
 #include "frontends/c/frontend.h"
 #include "analyzer/lifetime.h"
 #include "executor/executor.h"
 #include "analyzer/diagnostic.h"
+#include "analyzer/constraint_engine.h"
 /*
  * Liminal CLI entry point
  *

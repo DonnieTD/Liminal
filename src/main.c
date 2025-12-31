@@ -8,7 +8,6 @@
 
 #include "analyzer/trace.h"
 #include "analyzer/use.h"
-#include "analyzer/shadow.h"
 
 #include "frontends/c/ast.h"
 #include "frontends/c/frontend.h"
@@ -16,6 +15,7 @@
 #include "analyzer/lifetime.h"
 #include "executor/executor.h"
 #include "analyzer/diagnostic.h"
+#include "analyzer/constraint_engine.h"
 
 
 /*
