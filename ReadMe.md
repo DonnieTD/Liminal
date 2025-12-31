@@ -19,20 +19,20 @@ history. All understanding, reasoning, and visualization happens
 afterward.
 
 Execution is separated from analysis.
-Analysis is separated from visualization.
+Analysis is separated from presentation.
 
 ---
 
 ## Core Idea
 
 Programs are not instruction streams.
-Programs are trajectories through state.
+Programs are trajectories through semantic state.
 
 Execution is modeled as a sequence of immutable semantic states indexed
 by time.
 
 Bugs, undefined behavior, and exploits are treated as pathological
-transitions in that sequence — not as crashes, warnings, or abstract
+transitions in that sequence, not as crashes, warnings, or abstract
 violations.
 
 The engine answers one question:
@@ -62,7 +62,7 @@ No stage mutates the output of a previous stage.
 ## Stage 1: Frontend / Parser
 
 Responsibility:
-What is the program?
+What exists?
 
 The frontend parses C source code into an abstract syntax tree (AST).
 
@@ -75,14 +75,14 @@ The AST is:
 The AST represents the terrain the program will traverse.
 
 Primary artifact:
-- AST (arena-owned, stable IDs)
+- AST (arena-owned, stable node IDs)
 
 ---
 
 ## Stage 2: Executor
 
 Responsibility:
-What actually happened in this run?
+In what order did existence occur?
 
 The executor:
 - starts from an empty initial state
@@ -99,7 +99,7 @@ For each semantic event:
 
 Execution produces a linear timeline:
 
-World0 <-> World1 <-> World2 <-> ... <-> WorldN
+World0 -> World1 -> World2 -> ... -> WorldN
 
 Primary artifacts:
 - World timeline
@@ -162,7 +162,7 @@ Understanding happens arbitrarily many times.
 
 ## Scope Model
 
-Scope is modeled as nested hashmaps arranged in a rose-tree structure.
+Scope is modeled as immutable lexical environments arranged in a tree.
 
 Each scope:
 - maps names to storage locations
@@ -180,20 +180,20 @@ Primary artifacts:
 Lifetime is a runtime fact, not a type-system concept.
 
 A storage location is:
-- born when created
+- born when declared
 - alive while reachable
-- dead once unreachable
+- dead once its owning scope exits
 
 Primary artifacts:
-- Storage lifetime ranges
-- Scope lifetime ranges
+- Scope lifetimes
+- Variable lifetimes
 
 ---
 
 ## Stage 3: Analyzer
 
 Responsibility:
-What does this execution mean structurally?
+What structural facts can be derived from this execution?
 
 The analyzer:
 - consumes the World timeline
@@ -204,55 +204,62 @@ The analyzer:
 Primary artifacts:
 - ScopeLifetime
 - VariableLifetime
-- ShadowReport
 - UseReport
-- Diagnostic
+- Structural violations
 
 Analysis is pure, replayable, and repeatable.
 
-Stage 3 ends at:
-- structural correctness
-- temporal correctness
-- name and lifetime validity
-
-No value reasoning.
+Stage 3 answers:
+- Is the execution structurally well-formed?
+- Are scopes nested correctly?
+- Are lifetimes respected?
 
 ---
 
-## Stage 4: Constraint Engine (Planned)
+## Stage 4: Constraint Engine
 
 Responsibility:
 What semantic rules must hold?
 
-This stage introduces constraints, not execution.
+This stage introduces constraints, not diagnostics.
+
+Constraints express facts about semantic reality, independent of
+presentation or UX.
 
 Examples:
-- type compatibility
-- definite assignment
-- return-path completeness
-- control-flow soundness
+- a variable use must have a declaration
+- a declaration may not redeclare in the same scope
+- a declaration may not shadow a parent binding
+- a use may not occur after scope exit
+
+Constraints are:
+- derived from the World timeline
+- independent of reporting
+- stable across tooling
 
 Primary artifacts:
-- Constraint graphs
-- Constraint violations
-- Justification traces
+- ConstraintArtifact
+- ConstraintKind
+- Constraint sets derived from execution
 
 ---
 
-## Stage 5: Artifact Layer (Planned)
+## Stage 5: Artifact Layer (Next)
 
 Responsibility:
 Make meaning stable.
 
 This layer:
-- defines stable schemas for all artifacts
-- version-controls semantic output
-- enables serialization and tooling
+- attaches stable identity and provenance to semantic facts
+- connects constraints back to source structure
+- defines versioned, serializable artifacts
+
+This is where analysis becomes tooling-grade.
 
 Primary artifacts:
-- JSON schemas
-- Binary snapshots
-- Artifact diffs
+- Source-anchored diagnostics
+- Artifact schemas
+- Stable semantic IDs
 
 ---
 
@@ -266,12 +273,6 @@ The visualization layer:
 - renders timelines, graphs, and comparisons
 - supports interactive exploration
 
-Primary artifacts:
-- Timelines
-- Scope trees
-- Lifetime bands
-- Diagnostic overlays
-
 ---
 
 ## Stage 7: Cross-Run Reasoning (Planned)
@@ -283,21 +284,6 @@ This stage enables:
 - regression detection
 - exploit delta analysis
 - semantic drift tracking
-
-Primary artifacts:
-- Cross-run diffs
-- Temporal alignment maps
-- Invariant stability reports
-
----
-
-## Why This Exists
-
-Most tools answer:
-What did the machine do?
-
-Liminal answers:
-How did semantic reality evolve over time, and where did it break?
 
 ---
 
@@ -313,25 +299,13 @@ How did semantic reality evolve over time, and where did it break?
 
 ## Roadmap Status
 
-### Stage 1: DONE
-### Stage 2: DONE
-### Stage 3: DONE (v0.3.8)
-### Stage 4: PLANNED
-### Stage 5: PLANNED
-### Stage 6: PLANNED
-### Stage 7: PLANNED
-
----
-
-## Milestone: Hello World
-
-A program is supported when:
-- AST drives execution
-- execution produces Worlds
-- variables are declared and used
-- lifetimes are derived
-- violations are reported
-- artifacts are emitted
+- Stage 1: DONE
+- Stage 2: DONE
+- Stage 3: DONE
+- Stage 4: DONE
+- Stage 5: NEXT
+- Stage 6: PLANNED
+- Stage 7: PLANNED
 
 ---
 

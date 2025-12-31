@@ -1,4 +1,4 @@
-/* LIMINAL_FLAT_MIN 20251231T173151Z */
+/* LIMINAL_FLAT_MIN 20251231T173804Z */
 //@header src/analyzer/constraint.h
 #pragma once
 #include <stdint.h>
@@ -895,18 +895,9 @@ ConstraintArtifact analyze_declaration_constraints(struct World *head)
     };
 }
 //@source src/analyzer/constraint_diagnostic.c
+// src/analyzer/constraint_diagnostic.c
 #include "analyzer/constraint.h"
 #include "analyzer/diagnostic.h"
-/*
- * Map semantic constraints to human-facing diagnostics.
- *
- * This file MUST contain:
- *  - no analysis
- *  - no world traversal
- *  - no execution logic
- *
- * It is a pure projection layer.
- */
 size_t constraint_to_diagnostic(
     const ConstraintArtifact *constraints,
     Diagnostic *out,
@@ -927,13 +918,36 @@ size_t constraint_to_diagnostic(
                 .previous_origin = NULL
             };
             break;
+        case CONSTRAINT_SHADOWING:
+            out[count++] = (Diagnostic){
+                .kind = DIAG_SHADOWING,
+                .time = c->time,
+                .scope_id = c->scope_id,
+                .previous_scope_id = 0, /* parent scope not surfaced yet */
+                .name = NULL,
+                .origin = NULL,
+                .previous_origin = NULL
+            };
+            break;
+        case CONSTRAINT_USE_REQUIRES_DECLARATION:
+            out[count++] = (Diagnostic){
+                .kind = DIAG_USE_BEFORE_DECLARE,
+                .time = c->time,
+                .scope_id = c->scope_id,
+                .previous_scope_id = 0,
+                .name = NULL,
+                .origin = NULL,
+                .previous_origin = NULL
+            };
+            break;
         default:
-            /* Unknown constraint — intentionally ignored */
+            /* Unknown / future constraint — ignored by design */
             break;
         }
     }
     return count;
-}//@source src/analyzer/constraint_engine.c
+}
+//@source src/analyzer/constraint_engine.c
 #include "analyzer/constraint_engine.h"
 #include "analyzer/constraint_variable.h"
 #include "analyzer/constraint_declaration.h"
