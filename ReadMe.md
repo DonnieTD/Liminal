@@ -14,19 +14,20 @@ It is NOT:
 Instead, Liminal treats a program as a concrete trajectory through semantic
 state over time.
 
-A program is executed exactly once, producing a complete semantic
-history. All understanding, reasoning, and visualization happens
-afterward.
+A program is executed exactly once, producing a complete semantic history.
+All understanding, reasoning, validation, and visualization happens
+after execution.
 
 Execution is separated from analysis.
 Analysis is separated from presentation.
+Artifacts are separated from policy.
 
 ---
 
 ## Core Idea
 
 Programs are not instruction streams.
-Programs are trajectories through semantic state.
+Programs are trajectories through semantic reality.
 
 Execution is modeled as a sequence of immutable semantic states indexed
 by time.
@@ -54,7 +55,6 @@ The system is split into strictly separated stages:
 7. Cross-Run Reasoning
 
 Data flows strictly forward.
-
 No stage mutates the output of a previous stage.
 
 ---
@@ -75,7 +75,7 @@ The AST is:
 The AST represents the terrain the program will traverse.
 
 Primary artifact:
-- AST (arena-owned, stable node IDs)
+- ASTProgram (arena-owned, stable node IDs)
 
 ---
 
@@ -116,10 +116,10 @@ Worlds are immutable once created.
 
 A World contains:
 - monotonic time index
-- pointer to the active lexical scope
+- active lexical scope
 - call stack (future)
 - memory state (future)
-- pointer to the Step that caused this World
+- the Step that caused this World
 - links to previous and next Worlds
 
 A World does NOT:
@@ -136,7 +136,7 @@ The Universe owns time and history.
 
 The Universe:
 - owns the full World timeline
-- knows which World is current
+- tracks the current World
 - advances execution by creating new Worlds
 - allows backward traversal for analysis
 
@@ -160,36 +160,6 @@ Understanding happens arbitrarily many times.
 
 ---
 
-## Scope Model
-
-Scope is modeled as immutable lexical environments arranged in a tree.
-
-Each scope:
-- maps names to storage locations
-- is immutable once created
-- points to a parent scope
-
-Primary artifacts:
-- Scope graph
-- Scope lifetime intervals
-
----
-
-## Lifetime Model
-
-Lifetime is a runtime fact, not a type-system concept.
-
-A storage location is:
-- born when declared
-- alive while reachable
-- dead once its owning scope exits
-
-Primary artifacts:
-- Scope lifetimes
-- Variable lifetimes
-
----
-
 ## Stage 3: Analyzer
 
 Responsibility:
@@ -208,11 +178,6 @@ Primary artifacts:
 - Structural violations
 
 Analysis is pure, replayable, and repeatable.
-
-Stage 3 answers:
-- Is the execution structurally well-formed?
-- Are scopes nested correctly?
-- Are lifetimes respected?
 
 ---
 
@@ -240,26 +205,69 @@ Constraints are:
 Primary artifacts:
 - ConstraintArtifact
 - ConstraintKind
-- Constraint sets derived from execution
+- Constraint sets
 
 ---
 
-## Stage 5: Artifact Layer (Next)
+## Stage 5: Artifact Layer (DONE)
 
 Responsibility:
 Make meaning stable.
 
 This layer:
-- attaches stable identity and provenance to semantic facts
-- connects constraints back to source structure
+- assigns stable identity to semantic facts
+- anchors diagnostics to source structure
 - defines versioned, serializable artifacts
+- enables cross-run comparison
 
 This is where analysis becomes tooling-grade.
 
 Primary artifacts:
-- Source-anchored diagnostics
-- Artifact schemas
-- Stable semantic IDs
+- DiagnosticArtifact
+- DiagnosticId (stable across runs)
+- NDJSON diagnostic streams
+- Artifact directories with metadata
+
+### Artifact Directory Contract
+
+.liminal/
+  <run-id>/
+    meta.json
+    diagnostics.ndjson
+
+Artifacts are:
+- deterministic
+- serializable
+- replayable
+- consumer-agnostic
+
+---
+
+## Diagnostic Consumers
+
+Stage 5 introduces first-class consumers:
+
+- Render: terminal diagnostics
+- Validate: structural gating (duplicate IDs, monotonic time)
+- Diff: cross-run comparison
+- Stats: aggregated diagnostic metrics
+
+Consumers:
+- never mutate artifacts
+- never allocate persistent state
+- are deterministic and composable
+
+---
+
+## CLI Model
+
+Liminal provides two primary commands:
+
+liminal run <file> [--emit-artifacts]
+liminal analyze <artifact-dir>
+
+- run executes and optionally emits artifacts
+- analyze consumes artifacts only (no execution)
 
 ---
 
@@ -303,7 +311,7 @@ This stage enables:
 - Stage 2: DONE
 - Stage 3: DONE
 - Stage 4: DONE
-- Stage 5: NEXT
+- Stage 5: DONE
 - Stage 6: PLANNED
 - Stage 7: PLANNED
 
