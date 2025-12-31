@@ -1,20 +1,20 @@
-# Semantic Execution Engine
+# Semantic Execution Engine (Liminal)
 
 ## Overview
 
-This project is a semantic execution and analysis engine for C.
+Liminal is a semantic execution and analysis engine for C.
 
 It is NOT:
 - a compiler
-- a traditional VM
+- a traditional virtual machine
 - an IR pipeline
 - a static analyzer
 - a symbolic executor
 
-Instead, it treats a program as a concrete trajectory through semantic
+Instead, Liminal treats a program as a concrete trajectory through semantic
 state over time.
 
-The program is executed exactly once, producing a complete semantic
+A program is executed exactly once, producing a complete semantic
 history. All understanding, reasoning, and visualization happens
 afterward.
 
@@ -28,16 +28,16 @@ Analysis is separated from visualization.
 Programs are not instruction streams.
 Programs are trajectories through state.
 
-Execution is modeled as a sequence of state transitions indexed by time.
+Execution is modeled as a sequence of immutable semantic states indexed
+by time.
 
 Bugs, undefined behavior, and exploits are treated as pathological
-transitions in that sequence, not as crashes, warnings, or abstract
+transitions in that sequence — not as crashes, warnings, or abstract
 violations.
 
 The engine answers one question:
 
-How did semantic reality evolve over time, and where did it stop
-being smooth?
+How did semantic reality evolve over time, and where did it stop being smooth?
 
 ---
 
@@ -45,7 +45,7 @@ being smooth?
 
 The system is split into four strictly separated stages:
 
-1. Parser / Frontend
+1. Frontend / Parser
 2. Executor
 3. Analyzer
 4. Visualization
@@ -56,7 +56,7 @@ No stage mutates the output of a previous stage.
 
 ---
 
-## Stage 1: Parser / Frontend
+## Stage 1: Frontend / Parser
 
 Responsibility:
 What is the program?
@@ -65,8 +65,9 @@ The frontend parses C source code into an abstract syntax tree (AST).
 
 The AST is:
 - immutable
-- shared by all executions
-- free of execution semantics
+- execution-agnostic
+- shared by all runs
+- free of semantic effects
 
 The AST represents the terrain the program will traverse.
 
@@ -90,11 +91,11 @@ For each semantic event:
 - the World is linked to the previous World
 - the semantic cause is recorded as a Step
 
-Execution produces a linear sequence of Worlds:
+Execution produces a linear timeline:
 
 World0 <-> World1 <-> World2 <-> ... <-> WorldN
 
-This sequence is the primary output of execution.
+This timeline is the primary execution artifact.
 
 ---
 
@@ -107,7 +108,7 @@ Worlds are immutable once created.
 
 A World contains:
 - monotonic time index
-- pointer to the active scope
+- pointer to the active lexical scope
 - call stack (future)
 - memory state (future)
 - pointer to the Step that caused this World
@@ -130,7 +131,7 @@ What is the state right now, and how did we get here?
 The Universe owns time and history.
 
 The Universe:
-- owns the sequence of Worlds
+- owns the full World timeline
 - knows which World is current
 - advances execution by creating new Worlds
 - allows backward traversal for analysis
@@ -144,13 +145,13 @@ This keeps time explicit and prevents recursive corruption.
 
 ## Semantic Write-Ahead Log
 
-The World sequence acts as a bidirectional semantic write-ahead log.
+The World timeline acts as a bidirectional semantic write-ahead log.
 
 Forward traversal:
-  execution
+- execution
 
 Backward traversal:
-  analysis
+- analysis
 
 Unlike a traditional WAL:
 - entries are semantic, not bytes
@@ -192,11 +193,11 @@ Scope 0 (file)
         +-- Scope 2 (block)
 
 Each scope:
-- maps names -> storage locations
+- maps names to storage locations
 - is immutable once created
 - points to a parent scope
 
-File scope, function scope, and block scope are the same mechanism.
+File scope, function scope, and block scope use the same mechanism.
 They differ only in creation and destruction time.
 
 Scope lookup:
@@ -219,8 +220,8 @@ A storage location is:
 
 Lifetime is derived from:
 - scope existence
-- call stack frames
-- memory object lifetime
+- call stack frames (future)
+- memory object reachability
 
 The only question asked:
 
@@ -234,7 +235,7 @@ Responsibility:
 What does this execution mean?
 
 The analyzer:
-- consumes the World sequence
+- consumes the World timeline
 - never re-executes the program
 - never mutates Worlds
 - derives artifacts such as:
@@ -267,7 +268,7 @@ It performs no execution and no semantic inference.
 Most tools answer:
 What did the machine do?
 
-This engine answers:
+Liminal answers:
 How did semantic reality evolve over time, and where did it break?
 
 Bugs become structural distortions in time, not mysterious failures.
@@ -302,89 +303,85 @@ It optimizes for clarity, observability, and semantic truth.
 ### DONE
 
 Core execution model:
-- [x] World structure (immutable semantic state)
-- [x] Universe owning time and history
-- [x] Bidirectional World timeline
-- [x] Monotonic time advancement per semantic event
-- [x] Arena allocation for Worlds, Steps, Scopes, Storage
-- [x] Explicit Step model (semantic causality)
+- World structure (immutable semantic state)
+- Universe owning time and history
+- Bidirectional World timeline
+- Monotonic time advancement per semantic event
+- Arena allocation for Worlds, Steps, Scopes, Storage
+- Explicit Step model (semantic causality)
 
 Scopes:
-- [x] Immutable scope model (parent-linked)
-- [x] Scope enter / exit Steps
-- [x] Scope lifetime derivation
-- [x] Scope invariant validation
+- Immutable scope model (parent-linked)
+- Scope enter / exit Steps
+- Scope lifetime derivation
+- Scope invariant validation
 
 Variables and storage:
-- [x] Variable declaration Step (STEP_DECLARE)
-- [x] Storage objects with unique IDs
-- [x] Name binding via persistent hashmaps
-- [x] Scope -> storage association
+- Variable declaration Step (STEP_DECLARE)
+- Storage objects with unique IDs
+- Name binding via persistent hashmaps
+- Scope to storage association
 
 Use semantics:
-- [x] Variable use Step (STEP_USE)
-- [x] Analyzer validation of STEP_USE
-- [x] Use-before-declare detection
-- [x] Use-after-scope-exit detection
+- Variable use Step (STEP_USE)
+- Analyzer validation of STEP_USE
+- Use-before-declare detection
+- Use-after-scope-exit detection
 
 Analysis infrastructure:
-- [x] Trace iterator (forward and backward)
-- [x] Analyzer / executor separation
-- [x] Pure analysis passes
+- Trace iterator (forward and backward)
+- Analyzer / executor separation
+- Pure analysis passes
 
 CLI:
-- [x] Deterministic execution scaffold
-- [x] Raw timeline output
-- [x] Trace output
-- [x] Scope lifetime reporting
-- [x] Use validation reporting
+- Deterministic execution scaffold
+- Raw timeline output
 
 ---
 
 ### IN PROGRESS
 
-- [ ] Precise variable lifetime intervals
-- [ ] Shadowing detection
-- [ ] Multiple declaration validation
-- [ ] Structured diagnostic output
+- Precise variable lifetime intervals
+- Shadowing detection
+- Multiple declaration validation
+- Structured diagnostic output
 
 ---
 
 ### NEXT (HELLO WORLD MILESTONE)
 
 Frontend integration:
-- [ ] Minimal real frontend AST for:
-      - function
-      - block
-      - variable declaration
-      - variable use
-      - return
-- [ ] Remove dummy AST scaffolding
-- [ ] AST-driven execution
+- Minimal real AST for:
+  - function
+  - block
+  - variable declaration
+  - variable use
+  - return
+- AST-driven execution
 
 Execution semantics:
-- [ ] Variable declaration driven by AST
-- [ ] Variable use driven by AST
-- [ ] Return semantics
-- [ ] End-of-function teardown
+- Variable declaration driven by AST
+- Variable use driven by AST
+- Return semantics
+- End-of-function teardown
 
 Artifacts:
-- [ ] Variable lifetime ranges
-- [ ] Stable artifact schema
-- [ ] Artifact serialization (JSON or similar)
+- Variable lifetime ranges
+- Stable artifact schema
+- Artifact serialization (JSON or similar)
 
 ---
 
 ### LATER
 
-- [ ] Call stack frames
-- [ ] Function calls and returns
-- [ ] Heap allocation modeling
-- [ ] Use-after-free detection
-- [ ] Memory lifetime analysis
-- [ ] Invariant drift detection
-- [ ] Visualization frontend
-- [ ] Cross-run comparisons
+- Call stack frames
+- Function calls and returns
+- Heap allocation modeling
+- Use-after-free detection
+- Memory lifetime analysis
+- Invariant drift detection
+- Visualization frontend
+- Cross-run comparisons
 
 ---
 
