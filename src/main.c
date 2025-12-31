@@ -1,6 +1,17 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "executor/universe.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include "executor/scope.h"
+
+#include "analyzer/trace.h"
+#include "frontends/c/ast.h"
+
+#include "analyzer/lifetime.h"
+
+
 /*
  * Liminal CLI entry point
  *
@@ -29,66 +40,110 @@ static void print_usage(const char *prog)
 /*
  * Command: run
  *
- * Intended implementation order (do NOT skip steps):
- *
- * 1. Frontend (src/frontends/c/)
- *    - lexer.c     : tokenize input source
- *    - parser.c   : build AST
- *    - ast.c      : own AST node structures
- *
- * 2. Executor (src/executor/)
- *    - universe.c : create initial Universe
- *    - world.c    : create initial empty World
- *    - step.c     : define execution step semantics
- *    - scope.c    : manage scope creation and lookup
- *    - stack.c    : manage call stack frames
- *    - memory.c   : manage storage, arenas, and aliasing
- *
- * 3. Execution loop
- *    - walk AST deterministically
- *    - for each semantic step:
- *        - create a new World
- *        - link it to previous World
- *        - record the AST node that caused the transition
- *
- * 4. Persistence (later)
- *    - serialize World sequence to disk as artifacts
- *
- * At the end of this command, execution is DONE.
- * No analysis happens here.
+ * This is a *demonstration scaffold*.
+ * No real parsing or execution yet.
  */
 static int cmd_run(const char *path)
 {
     (void)path;
-    printf("run: coming soon\n");
+
+    /* Dummy AST nodes (identity only) */
+    ASTNode ast_func  = { .kind = AST_FUNCTION,  .id = 1, .line = 1 };
+    ASTNode ast_stmt1 = { .kind = AST_STATEMENT, .id = 2, .line = 2 };
+    ASTNode ast_stmt2 = { .kind = AST_STATEMENT, .id = 3, .line = 3 };
+
+    /* Create Universe */
+    Universe *u = universe_create();
+    if (!u) {
+        fprintf(stderr, "failed to create universe\n");
+        return 1;
+    }
+
+    /* Create initial World */
+    World *w0 = world_create_initial(u);
+    if (!w0) {
+        fprintf(stderr, "failed to create initial world\n");
+        return 1;
+    }
+
+    universe_attach_initial_world(u, w0);
+
+    /* ---- Simulated program ---- */
+
+    universe_enter_scope(u, &ast_func);
+    universe_step(u, &ast_stmt1);
+    universe_step(u, &ast_stmt2);
+    universe_exit_scope(u, &ast_func);
+
+    /* ---- Print raw timeline ---- */
+
+    printf("\n-- RAW TIMELINE --\n");
+    for (World *w = u->head; w; w = w->next) {
+        printf(
+            "t=%llu step=%d scope=%llu origin=%p\n",
+            (unsigned long long)w->time,
+            w->step ? w->step->kind : -1,
+            w->active_scope ? (unsigned long long)w->active_scope->id : 0,
+            w->step ? w->step->origin : NULL
+        );
+    }
+
+    /* ---- Trace forward ---- */
+
+    printf("\n-- TRACE FORWARD --\n");
+    Trace t = trace_begin(u->head);
+    while (trace_is_valid(&t)) {
+        World *w = trace_current(&t);
+        printf(
+            "t=%llu step=%d scope=%llu\n",
+            (unsigned long long)w->time,
+            w->step ? w->step->kind : -1,
+            w->active_scope ? (unsigned long long)w->active_scope->id : 0
+        );
+        trace_next(&t);
+    }
+
+    /* ---- Trace backward ---- */
+
+    printf("\n-- TRACE BACKWARD --\n");
+    t = trace_end(u->tail);
+    while (trace_is_valid(&t)) {
+        World *w = trace_current(&t);
+        printf(
+            "t=%llu step=%d scope=%llu\n",
+            (unsigned long long)w->time,
+            w->step ? w->step->kind : -1,
+            w->active_scope ? (unsigned long long)w->active_scope->id : 0
+        );
+        trace_prev(&t);
+    }
+
+    printf("\n-- SCOPE LIFETIMES --\n");
+    ScopeLifetime lifetimes[64];
+    size_t count = lifetime_collect_scopes(u->head, lifetimes, 64);
+
+    for (size_t i = 0; i < count; i++) {
+        const ScopeLifetime *lt = &lifetimes[i];
+        
+        if (lt->exit_time == UINT64_MAX) {
+            printf("scope=%llu enter=%llu exit=OPEN\n",
+                (unsigned long long)lt->scope_id,
+                (unsigned long long)lt->enter_time);
+        } else {
+            printf("scope=%llu enter=%llu exit=%llu\n",
+                (unsigned long long)lt->scope_id,
+                (unsigned long long)lt->enter_time,
+                (unsigned long long)lt->exit_time);
+        }
+    }
+
     return 0;
 }
 
 /*
  * Command: analyze
  *
- * Intended implementation order:
- *
- * 1. Load artifacts produced by `run`
- *    - World sequence
- *    - metadata
- *
- * 2. Analyzer (src/analyzer/)
- *    - trace.c     : iterate World sequence
- *    - lifetime.c : derive lifetime information
- *    - invariants : detect drift, violations, patterns
- *
- * 3. Artifact generation
- *    - emit JSON / structured data
- *    - no execution
- *    - no mutation of Worlds
- *
- * Analyzer code must NEVER:
- *    - execute semantics
- *    - modify Worlds
- *    - infer alternative paths
- *
- * Analysis is pure and replayable.
+ * Placeholder for analysis pipeline.
  */
 static int cmd_analyze(const char *path)
 {
@@ -99,11 +154,6 @@ static int cmd_analyze(const char *path)
 
 int main(int argc, char **argv)
 {
-    /*
-     * CLI parsing only.
-     * This function should remain readable in one screen.
-     */
-
     if (argc < 2) {
         print_usage(argv[0]);
         printf("\ncoming soon\n");

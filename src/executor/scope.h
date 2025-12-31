@@ -1,3 +1,4 @@
+#include <stdint.h>
 #ifndef LIMINAL_SCOPE_H
 #define LIMINAL_SCOPE_H
 
@@ -17,6 +18,8 @@
 struct HashMap;
 
 typedef struct Scope {
+     uint64_t id;
+     
     /* Parent lexical scope (NULL for root / file scope) */
     struct Scope *parent;
 

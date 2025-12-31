@@ -4,47 +4,63 @@
 #include <stdint.h>
 
 /*
- * Step
+ * StepKind
  *
- * A Step represents the semantic cause of a World transition.
+ * Enumerates the semantic reason *why* a World transition occurred.
  *
- * Typically corresponds to:
- * - an AST node
- * - a statement
- * - an expression evaluation
- *
- * Steps do not execute logic.
- * They exist only to explain *why* a World exists.
+ * IMPORTANT:
+ *  - StepKinds do NOT execute logic
+ *  - They describe causality, not behavior
+ *  - Analysis code relies on these being stable
  */
-
 typedef enum StepKind {
     STEP_UNKNOWN = 0,
 
-    /* Structural */
+    /* Structural (lexical / control structure) */
     STEP_ENTER_SCOPE,
     STEP_EXIT_SCOPE,
 
-    /* Control */
+    /* Control flow */
     STEP_CALL,
     STEP_RETURN,
 
-    /* Evaluation */
-    STEP_ASSIGN,
+    /* Declarations */
+    STEP_DECLARE,   /* introduce a variable */
+
+    /* Variable access (future) */
+    STEP_USE,       /* read a variable */
+    STEP_ASSIGN,    /* write a variable */
+
+    /* Memory (future) */
     STEP_LOAD,
     STEP_STORE,
 
-    /* Placeholder for future extension */
+    /* Fallback / extension */
     STEP_OTHER
 } StepKind;
 
+/*
+ * Step
+ *
+ * A Step represents the semantic *cause* of a World transition.
+ *
+ * Steps:
+ *  - do NOT execute logic
+ *  - do NOT own memory
+ *  - are immutable once created
+ *
+ * Interpretation of `info` depends on StepKind:
+ *  - ENTER / EXIT_SCOPE → scope id
+ *  - DECLARE             → variable id
+ *  - others              → kind-specific later
+ */
 typedef struct Step {
-    /* Kind of semantic action */
     StepKind kind;
 
-    /* Opaque pointer to AST node or frontend structure */
+    /* Pointer to AST node or frontend structure */
     void *origin;
 
-    /* Optional metadata (line number, source span, etc.) */
+    /* Kind-specific metadata (ids, line numbers, etc.) */
     uint64_t info;
 } Step;
 
