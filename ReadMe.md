@@ -43,12 +43,15 @@ How did semantic reality evolve over time, and where did it stop being smooth?
 
 ## Architecture Summary
 
-The system is split into four strictly separated stages:
+The system is split into strictly separated stages:
 
 1. Frontend / Parser
 2. Executor
 3. Analyzer
-4. Visualization
+4. Constraint Engine
+5. Artifact Layer
+6. Visualization
+7. Cross-Run Reasoning
 
 Data flows strictly forward.
 
@@ -70,6 +73,9 @@ The AST is:
 - free of semantic effects
 
 The AST represents the terrain the program will traverse.
+
+Primary artifact:
+- AST (arena-owned, stable IDs)
 
 ---
 
@@ -95,7 +101,9 @@ Execution produces a linear timeline:
 
 World0 <-> World1 <-> World2 <-> ... <-> WorldN
 
-This timeline is the primary execution artifact.
+Primary artifacts:
+- World timeline
+- Step stream
 
 ---
 
@@ -120,10 +128,6 @@ A World does NOT:
 - execute logic
 - speculate about alternatives
 
-A World answers only:
-
-What is the state right now, and how did we get here?
-
 ---
 
 ## Universe
@@ -139,8 +143,6 @@ The Universe:
 Worlds do not know about the Universe.
 The Universe knows about Worlds.
 
-This keeps time explicit and prevents recursive corruption.
-
 ---
 
 ## Semantic Write-Ahead Log
@@ -153,30 +155,8 @@ Forward traversal:
 Backward traversal:
 - analysis
 
-Unlike a traditional WAL:
-- entries are semantic, not bytes
-- Worlds are materialized views of history
-- backward traversal is analytical, not destructive
-
 Execution happens once.
 Understanding happens arbitrarily many times.
-
----
-
-## Control Flow
-
-Control flow is not stored as intention.
-
-In a concrete execution:
-- there is always exactly one next step
-- branches resolve immediately
-- loops iterate deterministically
-
-The path taken is recorded implicitly by:
-- World ordering
-- AST node pointers stored in Steps
-
-The executor does not manage possible paths.
 
 ---
 
@@ -184,28 +164,14 @@ The executor does not manage possible paths.
 
 Scope is modeled as nested hashmaps arranged in a rose-tree structure.
 
-ASCII model:
-
-Scope 0 (file)
-  |
-  +-- Scope 1 (function)
-        |
-        +-- Scope 2 (block)
-
 Each scope:
 - maps names to storage locations
 - is immutable once created
 - points to a parent scope
 
-File scope, function scope, and block scope use the same mechanism.
-They differ only in creation and destruction time.
-
-Scope lookup:
-- if name exists in current scope: in scope
-- else: lookup parent
-- else: error or undefined behavior
-
-No recovery or guessing.
+Primary artifacts:
+- Scope graph
+- Scope lifetime intervals
 
 ---
 
@@ -215,51 +181,113 @@ Lifetime is a runtime fact, not a type-system concept.
 
 A storage location is:
 - born when created
-- alive while reachable in the current World
-- dead once no longer reachable
+- alive while reachable
+- dead once unreachable
 
-Lifetime is derived from:
-- scope existence
-- call stack frames (future)
-- memory object reachability
-
-The only question asked:
-
-Is this storage alive now?
+Primary artifacts:
+- Storage lifetime ranges
+- Scope lifetime ranges
 
 ---
 
 ## Stage 3: Analyzer
 
 Responsibility:
-What does this execution mean?
+What does this execution mean structurally?
 
 The analyzer:
 - consumes the World timeline
-- never re-executes the program
+- never re-executes
 - never mutates Worlds
-- derives artifacts such as:
-  - scope lifetimes
-  - variable lifetimes
-  - variable use validation
-  - semantic invariant violations
-  - execution summaries
+- derives semantic facts
+
+Primary artifacts:
+- ScopeLifetime
+- VariableLifetime
+- ShadowReport
+- UseReport
+- Diagnostic
 
 Analysis is pure, replayable, and repeatable.
 
+Stage 3 ends at:
+- structural correctness
+- temporal correctness
+- name and lifetime validity
+
+No value reasoning.
+
 ---
 
-## Stage 4: Visualization
+## Stage 4: Constraint Engine (Planned)
 
 Responsibility:
-How do humans understand this?
+What semantic rules must hold?
+
+This stage introduces constraints, not execution.
+
+Examples:
+- type compatibility
+- definite assignment
+- return-path completeness
+- control-flow soundness
+
+Primary artifacts:
+- Constraint graphs
+- Constraint violations
+- Justification traces
+
+---
+
+## Stage 5: Artifact Layer (Planned)
+
+Responsibility:
+Make meaning stable.
+
+This layer:
+- defines stable schemas for all artifacts
+- version-controls semantic output
+- enables serialization and tooling
+
+Primary artifacts:
+- JSON schemas
+- Binary snapshots
+- Artifact diffs
+
+---
+
+## Stage 6: Visualization (Planned)
+
+Responsibility:
+Make time visible.
 
 The visualization layer:
-- ingests analysis artifacts
+- consumes artifacts only
 - renders timelines, graphs, and comparisons
-- provides interactive exploration
+- supports interactive exploration
 
-It performs no execution and no semantic inference.
+Primary artifacts:
+- Timelines
+- Scope trees
+- Lifetime bands
+- Diagnostic overlays
+
+---
+
+## Stage 7: Cross-Run Reasoning (Planned)
+
+Responsibility:
+Compare realities.
+
+This stage enables:
+- regression detection
+- exploit delta analysis
+- semantic drift tracking
+
+Primary artifacts:
+- Cross-run diffs
+- Temporal alignment maps
+- Invariant stability reports
 
 ---
 
@@ -271,21 +299,6 @@ What did the machine do?
 Liminal answers:
 How did semantic reality evolve over time, and where did it break?
 
-Bugs become structural distortions in time, not mysterious failures.
-
----
-
-## Non-Goals
-
-This project does NOT aim to:
-- replace production compilers
-- be fast
-- fully model all of C immediately
-- statically prevent bugs
-- infer programmer intent
-
-It optimizes for clarity, observability, and semantic truth.
-
 ---
 
 ## Design Principles
@@ -294,105 +307,30 @@ It optimizes for clarity, observability, and semantic truth.
 - Prefer observation over inference
 - Prefer explicit state over abstraction
 - Time must always be explicit
-- If a structure does not explain semantic drift, it does not belong
+- Artifacts over opinions
 
 ---
 
-## Roadmap / TODO
+## Roadmap Status
 
-### DONE
-
-Core execution model:
-- World structure (immutable semantic state)
-- Universe owning time and history
-- Bidirectional World timeline
-- Monotonic time advancement per semantic event
-- Arena allocation for Worlds, Steps, Scopes, Storage
-- Explicit Step model (semantic causality)
-
-Scopes:
-- Immutable scope model (parent-linked)
-- Scope enter / exit Steps
-- Scope lifetime derivation
-- Scope invariant validation
-
-Variables and storage:
-- Variable declaration Step (STEP_DECLARE)
-- Storage objects with unique IDs
-- Name binding via persistent hashmaps
-- Scope to storage association
-
-Use semantics:
-- Variable use Step (STEP_USE)
-- Analyzer validation of STEP_USE
-- Use-before-declare detection
-- Use-after-scope-exit detection
-
-Analysis infrastructure:
-- Trace iterator (forward and backward)
-- Analyzer / executor separation
-- Pure analysis passes
-
-CLI:
-- Deterministic execution scaffold
-- Raw timeline output
+### Stage 1: DONE
+### Stage 2: DONE
+### Stage 3: DONE (v0.3.8)
+### Stage 4: PLANNED
+### Stage 5: PLANNED
+### Stage 6: PLANNED
+### Stage 7: PLANNED
 
 ---
 
-### IN PROGRESS
+## Milestone: Hello World
 
-- Precise variable lifetime intervals
-- Shadowing detection
-- Multiple declaration validation
-- Structured diagnostic output
-
----
-
-### NEXT (HELLO WORLD MILESTONE)
-
-Frontend integration:
-- Minimal real AST for:
-  - function
-  - block
-  - variable declaration
-  - variable use
-  - return
-- AST-driven execution
-
-Execution semantics:
-- Variable declaration driven by AST
-- Variable use driven by AST
-- Return semantics
-- End-of-function teardown
-
-Artifacts:
-- Variable lifetime ranges
-- Stable artifact schema
-- Artifact serialization (JSON or similar)
-
----
-
-### LATER
-
-- Call stack frames
-- Function calls and returns
-- Heap allocation modeling
-- Use-after-free detection
-- Memory lifetime analysis
-- Invariant drift detection
-- Visualization frontend
-- Cross-run comparisons
-
----
-
-## Milestone Definition: Hello World
-
-A program is considered supported when:
-- source is parsed into an AST
+A program is supported when:
 - AST drives execution
-- a variable is declared and used
-- lifetime is derived correctly
-- violations are reported if present
+- execution produces Worlds
+- variables are declared and used
+- lifetimes are derived
+- violations are reported
 - artifacts are emitted
 
 ---
@@ -400,4 +338,4 @@ A program is considered supported when:
 ## One-Line Summary
 
 Programs are executed once to produce a semantic history.
-Bugs are singularities in that history.
+Artifacts let us understand it forever.

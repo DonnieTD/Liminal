@@ -1,4 +1,4 @@
-/* LIMINAL_FLAT_MIN 20251231T163759Z */
+/* LIMINAL_FLAT_MIN 20251231T164251Z */
 //@header src/analyzer/diagnostic.h
 #pragma once
 #include <stdint.h>
@@ -1079,32 +1079,96 @@ int trace_is_valid(const Trace *t)
 {
     return t && t->current;
 }
+//@source src/analyzer/use.c
+#include "analyzer/use.h"
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include "lifetime.h"
+#include "executor/scope.h"
+size_t analyze_step_use(
+    const struct World *worlds,
+    const struct ScopeLifetime *lifetimes,
+    size_t lifetime_count,
+    UseReport *out,
+    size_t cap
+) {
+    size_t count = 0;
+    Trace t = trace_begin((struct World *)worlds);
+    while (trace_is_valid(&t)) {
+        const World *w = trace_current(&t);
+        const Step *s = w->step;
+        if (!s || s->kind != STEP_USE)
+            goto next;
+        if (count >= cap)
+            break;
+        UseReport r = {
+            .time = w->time,
+            .scope_id = w->active_scope ? w->active_scope->id : 0,
+            .storage_id = s->info,
+            .kind = USE_OK
+        };
+        /* Rule 1: use before declaration */
+        if (s->info == UINT64_MAX) {
+            r.kind = USE_BEFORE_DECLARE;
+            out[count++] = r;
+            goto next;
+        }
+        /* Rule 2: use after scope exit */
+        for (size_t i = 0; i < lifetime_count; i++) {
+            const ScopeLifetime *lt = &lifetimes[i];
+            if (lt->scope_id == r.scope_id &&
+                lt->exit_time != UINT64_MAX &&
+                r.time > lt->exit_time) {
+                r.kind = USE_AFTER_SCOPE;
+                out[count++] = r;
+                goto next;
+            }
+        }
+    next:
+        trace_next(&t);
+    }
+    return count;
+}
 //@source src/analyzer/use_validate.c
 #include "analyzer/use_validate.h"
+#include "analyzer/use.h"
+#include "analyzer/lifetime.h"
 #include "executor/world.h"
-/*
- * analyze_use_validation
- *
- * Step 3.x placeholder.
- *
- * This pass will eventually:
- *  - analyze STEP_USE events
- *  - correlate against variable + scope lifetimes
- *  - emit diagnostics
- *
- * For now:
- *  - it is a no-op
- *  - required only to satisfy the diagnostic pipeline
- */
 size_t analyze_use_validation(
     struct World *head,
     Diagnostic *out,
     size_t cap
 ) {
-    (void)head;
-    (void)out;
-    (void)cap;
-    return 0;
+    ScopeLifetime lifetimes[128];
+    size_t lt_count = lifetime_collect_scopes(head, lifetimes, 128);
+    UseReport uses[128];
+    size_t use_count = analyze_step_use(
+        head,
+        lifetimes,
+        lt_count,
+        uses,
+        128
+    );
+    size_t count = 0;
+    for (size_t i = 0; i < use_count && count < cap; i++) {
+        const UseReport *u = &uses[i];
+        if (u->kind == USE_OK)
+            continue;
+        out[count++] = (Diagnostic){
+            .kind =
+                (u->kind == USE_BEFORE_DECLARE)
+                    ? DIAG_USE_BEFORE_DECLARE
+                    : DIAG_USE_AFTER_SCOPE_EXIT,
+            .time = u->time,
+            .scope_id = u->scope_id,
+            .previous_scope_id = 0,
+            .name = NULL,
+            .origin = NULL,
+            .previous_origin = NULL
+        };
+    }
+    return count;
 }
 //@source src/analyzer/validate.c
 #include "analyzer/validate.h"
