@@ -1,4 +1,4 @@
-/* LIMINAL_FLAT_MIN 20251231T192702Z */
+/* LIMINAL_FLAT_MIN 20251231T202354Z */
 /* -------- HEADERS -------- */
 //@header src/common/arena.h
 #ifndef LIMINAL_ARENA_H
@@ -346,14 +346,15 @@ World *world_clone(struct Universe *u, const World *src);
 #ifndef LIMINAL_ARTIFACT_EMIT_H
 #define LIMINAL_ARTIFACT_EMIT_H
 #include "analyzer/diagnostic.h"
-#include "stdbool.h"
+struct World;
 typedef struct {
-    const char *root;
-    const char *run_id;
-    const char *input_path;
+    const char   *root;
+    const char   *run_id;
+    const char   *input_path;
     unsigned long started_at;
+    const struct World *world_head;
 } ArtifactContext;
-bool artifact_emit_all(
+void artifact_emit_all(
     const ArtifactContext *ctx,
     const DiagnosticArtifact *diagnostics
 );
@@ -461,10 +462,12 @@ ConstraintArtifact analyze_variable_constraints(struct World *head);
 #include "analyzer/diagnostic_id.h"
 struct ASTNode;
 typedef enum DiagnosticKind {
-    DIAG_REDECLARATION,
+    DIAG_REDECLARATION = 0,
     DIAG_SHADOWING,
     DIAG_USE_BEFORE_DECLARE,
     DIAG_USE_AFTER_SCOPE_EXIT,
+    /* Sentinel */
+    DIAG_KIND_MAX
 } DiagnosticKind;
 typedef struct Diagnostic {
     DiagnosticId id;
@@ -521,18 +524,11 @@ void diagnostic_project_ndjson(
 #include <stdio.h>
 #include "analyzer/diagnostic.h"
 /*
- * Serialize diagnostics to a stream.
- *
- * Format: newline-delimited JSON (one diagnostic per line)
- *
- * This function:
- *  - does NOT allocate
- *  - does NOT infer
- *  - does NOT format for humans
+ * Serialize diagnostics to NDJSON.
  */
 void diagnostic_serialize_ndjson(
-    const DiagnosticArtifact *a,
-    FILE *out
+    FILE *out,
+    const DiagnosticArtifact *a
 );
 /*
  * Deserialize a single diagnostic from an NDJSON stream.
@@ -824,19 +820,37 @@ void diagnostic_render_terminal(
     FILE *out
 );
 //@header src/consumers/diagnostic_stats.h
-#pragma once
+#ifndef LIMINAL_DIAGNOSTIC_STATS_H
+#define LIMINAL_DIAGNOSTIC_STATS_H
+#include <stdio.h>   /* FILE */
+#include <stddef.h>  /* size_t */
 #include "analyzer/diagnostic.h"
 typedef struct {
     size_t total;
-    size_t by_kind[DIAG_USE_AFTER_SCOPE_EXIT + 1];
+    size_t by_kind[DIAG_KIND_MAX];
 } DiagnosticStats;
+/*
+ * Compute statistics from diagnostics.
+ * Does NOT allocate.
+ */
 void diagnostic_stats_compute(
     const DiagnosticArtifact *a,
-    DiagnosticStats *out);
-void diagnostic_stats_emit_json(
+    DiagnosticStats *out
+);
+/*
+ * Emit statistics to a stream.
+ * Does NOT allocate.
+ */
+void diagnostic_stats_emit(
     const DiagnosticStats *stats,
     FILE *out
-);//@header src/consumers/diagnostic_validate.h
+);
+#endif /* LIMINAL_DIAGNOSTIC_STATS_H */
+//@header src/consumers/diagnostic_timeline.h
+#pragma once
+#include <stdio.h>
+void diagnostic_timeline_render(FILE *in, FILE *out);
+//@header src/consumers/diagnostic_validate.h
 #pragma once
 #include "analyzer/diagnostic.h"
 typedef enum {
@@ -852,6 +866,22 @@ size_t validate_diagnostics(
     ValidationIssue *out,
     size_t cap
 );
+//@header src/consumers/timeline_emit.h
+#ifndef LIMINAL_TIMELINE_EMIT_H
+#define LIMINAL_TIMELINE_EMIT_H
+#include <stdio.h>
+struct World;
+/* Human / tool readable timeline */
+void emit_timeline(
+    const struct World *head,
+    FILE *out
+);
+/* NDJSON artifact timeline */
+void timeline_emit_ndjson(
+    const struct World *head,
+    FILE *out
+);
+#endif /* LIMINAL_TIMELINE_EMIT_H */
 //@header src/frontends/c/ast.h
 #ifndef LIMINAL_C_AST_H
 #define LIMINAL_C_AST_H
@@ -1705,6 +1735,8 @@ World *world_clone(Universe *u, const World *src)
 #include "common/fs.h"
 #include <stdio.h>
 #include <string.h>
+#include "consumers/timeline_emit.h"
+#include "executor/world.h"
 static void emit_meta(const ArtifactContext *ctx, const char *dir)
 {
     char path[512];
@@ -1737,7 +1769,7 @@ static void emit_diagnostics(
     diagnostic_project_ndjson(a, out);
     fclose(out);
 }
-bool artifact_emit_all(
+void artifact_emit_all(
     const ArtifactContext *ctx,
     const DiagnosticArtifact *diagnostics
 )
@@ -1748,7 +1780,16 @@ bool artifact_emit_all(
     fs_mkdir_if_missing(run_dir);
     emit_meta(ctx, run_dir);
     emit_diagnostics(diagnostics, run_dir);
-    return true;
+    /* Timeline emission (first-class artifact) */
+    {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/timeline.ndjson", run_dir);
+        FILE *out = fs_open_file(path);
+        if (out) {
+            timeline_emit_ndjson(ctx->world_head, out);
+            fclose(out);
+        }
+    }
 }
 //@source src/analyzer/constraint_declaration.c
 //@source src/analyzer/constraint_declaration.c
@@ -1908,6 +1949,7 @@ ConstraintArtifact analyze_constraints(struct World *head)
     };
 }
 //@source src/analyzer/constraint_scope.c
+void __constraint_scope_stub(void) {}
 //@source src/analyzer/constraint_variable.c
 #include "analyzer/constraint_variable.h"
 #include "analyzer/trace.h"
@@ -2099,29 +2141,11 @@ void diagnostic_project_ndjson(
 //@source src/analyzer/diagnostic_serialize.c
 #include <stdio.h>
 #include <stdint.h>
-#include <stddef.h>
+#include <stdlib.h>
+#include "analyzer/diagnostic.h"
 #include "analyzer/diagnostic_serialize.h"
-#include "analyzer/source_anchor.h"
-int diagnostic_deserialize_line(
-    FILE *in,
-    Diagnostic *out
-) {
-    if (!in || !out)
-        return 0;
-    /*
-     * Expected format (strict, machine-owned):
-     *
-     * {
-     *   "id":"%llx",
-     *   "kind":%u,
-     *   "time":%llu,
-     *   "scope":%llu,
-     *   "prev_scope":%llu,
-     *   "anchor":...
-     * }
-     *
-     * Anchor is ignored for now (Stage 5.3 discipline).
-     */
+int diagnostic_deserialize_line(FILE *in, Diagnostic *out)
+{
     unsigned long long id;
     unsigned kind;
     unsigned long long time;
@@ -2134,7 +2158,8 @@ int diagnostic_deserialize_line(
         "\"kind\":%u,"
         "\"time\":%llu,"
         "\"scope\":%llu,"
-        "\"prev_scope\":%llu",
+        "\"prev_scope\":%llu"
+        "}",
         &id,
         &kind,
         &time,
@@ -2143,17 +2168,18 @@ int diagnostic_deserialize_line(
     );
     if (n != 5)
         return 0;
-    /* Skip rest of line (anchor + newline) */
+    /* consume remainder of line */
     int c;
     while ((c = fgetc(in)) != '\n' && c != EOF) {}
-    out->id.value   = (uint64_t)id;
-    out->kind       = (DiagnosticKind)kind;
-    out->time       = (uint64_t)time;
-    out->scope_id   = (uint64_t)scope;
-    out->prev_scope = (uint64_t)prev_scope;
-    out->anchor     = NULL; /* reconstructed later */
+    out->id.value     = (uint64_t)id;
+    out->kind         = (DiagnosticKind)kind;
+    out->time         = (uint64_t)time;
+    out->scope_id     = (uint64_t)scope;
+    out->prev_scope   = (uint64_t)prev_scope;
+    out->anchor       = NULL; /* reconstructed later */
     return 1;
-}//@source src/analyzer/lifetime.c
+}
+//@source src/analyzer/lifetime.c
 #include <stdint.h>
 #include <stddef.h>
 #include "analyzer/lifetime.h"
@@ -2559,41 +2585,47 @@ void diagnostic_stats_compute(
     }
 }
 //@source src/consumers/diagnostic_stats_emit.c
-#include "consumers/diagnostic_stats.h"
-#include "analyzer/diagnostic.h"
 #include <stdio.h>
-/*
- * Emit diagnostic statistics as JSON.
- *
- * Contract:
- *  - single JSON object
- *  - no allocation
- *  - stable keys
- */
-void diagnostic_stats_emit_json(
-    const DiagnosticStats *s,
+#include "consumers/diagnostic_stats.h"
+void diagnostic_stats_emit(
+    const DiagnosticStats *stats,
     FILE *out
 )
 {
-    fprintf(out, "{\n");
-    fprintf(out, "  \"total\": %zu,\n", s->total);
-    fprintf(out, "  \"by_kind\": {\n");
-    int first = 1;
-    for (size_t i = 0; i <= DIAG_USE_AFTER_SCOPE_EXIT; i++) {
-        if (s->by_kind[i] == 0)
-            continue;
-        if (!first)
-            fprintf(out, ",\n");
+    fprintf(out, "total: %zu\n", stats->total);
+    for (size_t i = 0; i < DIAG_KIND_MAX; i++) {
+        if (stats->by_kind[i]) {
+            fprintf(out, "  kind[%zu]: %zu\n",
+                    i, stats->by_kind[i]);
+        }
+    }
+}
+//@source src/consumers/diagnostic_timeline.c
+#include <stdio.h>
+#include "analyzer/diagnostic.h"
+#include "analyzer/diagnostic_serialize.h"
+void diagnostic_timeline_render(FILE *in, FILE *out)
+{
+    Diagnostic d;
+    fprintf(out,
+        "%-5s %-24s %-5s %s\n",
+        "TIME", "KIND", "SCOPE", "ID"
+    );
+    fprintf(out,
+        "%-5s %-24s %-5s %s\n",
+        "----", "-----------------------", "-----",
+        "----------------"
+    );
+    while (diagnostic_deserialize_line(in, &d)) {
         fprintf(
             out,
-            "    \"%s\": %zu",
-            diagnostic_kind_name((DiagnosticKind)i),
-            s->by_kind[i]
+            "%5llu %-24s %5llu %016llx\n",
+            (unsigned long long)d.time,
+            diagnostic_kind_name(d.kind),
+            (unsigned long long)d.scope_id,
+            (unsigned long long)d.id.value
         );
-        first = 0;
     }
-    fprintf(out, "\n  }\n");
-    fprintf(out, "}\n");
 }
 //@source src/consumers/diagnostic_validate.c
 #include "consumers/diagnostic_validate.h"
@@ -2645,6 +2677,66 @@ size_t validate_diagnostics(
         }
     }
     return count;
+}
+//@source src/consumers/timeline_emit.c
+#include <stdio.h>
+#include "consumers/timeline_emit.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include "frontends/c/ast.h"
+/*
+ * Emit execution timeline as NDJSON
+ *
+ * NOTE:
+ *  - origin is opaque at executor level
+ *  - consumers may interpret it
+ */
+void timeline_emit_ndjson(
+    const struct World *head,
+    FILE *out
+)
+{
+    const struct World *w = head;
+    while (w) {
+        uint32_t ast_id = 0;
+        if (w->step && w->step->origin) {
+            const ASTNode *n = (const ASTNode *)w->step->origin;
+            ast_id = n->id;
+        }
+        fprintf(
+            out,
+            "{\"time\":%llu,\"step\":%d,\"ast\":%u}\n",
+            (unsigned long long)w->time,
+            w->step ? w->step->kind : 0,
+            ast_id
+        );
+        w = w->next;
+    }
+}
+/*
+ * Emit human-readable timeline
+ */
+void emit_timeline(
+    const struct World *head,
+    FILE *out
+)
+{
+    const struct World *w = head;
+    while (w) {
+        uint32_t ast_id = 0;
+        if (w->step && w->step->origin) {
+            const ASTNode *n = (const ASTNode *)w->step->origin;
+            ast_id = n->id;
+        }
+        fprintf(
+            out,
+            "t=%llu step=%d ast=%u\n",
+            (unsigned long long)w->time,
+            w->step ? w->step->kind : 0,
+            ast_id
+        );
+        w = w->next;
+    }
 }
 //@source src/frontends/c/ast.c
 #include "frontends/c/ast.h"
@@ -3016,27 +3108,34 @@ static uint32_t parse_statement(ASTProgram *p, Lexer *lx)
 #include "frontends/c/ast.h"
 #include "frontends/c/frontend.h"
 #include "commands/cmd_analyze.h"
+#include "commands/cmd_policy.h"
+#include "consumers/timeline_emit.h"
+#include "policy/default_policy.h"
 /*
  * Liminal CLI entry point
  *
  * Orchestration ONLY.
- * No semantics. No execution logic. No analysis logic.
+ * No semantics.
+ * No execution logic.
+ * No analysis logic.
  */
 static void print_usage(const char *prog)
 {
     printf("Usage: %s run <file> [options]\n", prog);
     printf("\nOptions:\n");
     printf("  --emit-artifacts\n");
+    printf("  --emit-timeline\n");
     printf("  --artifact-dir <path>   (default: .liminal)\n");
     printf("  --run-id <string>       (optional override)\n");
     printf("\n");
 }
 static int cmd_run(int argc, char **argv)
 {
-    const char *input_path = NULL;
-    const char *artifact_root = ".liminal";
+    const char *input_path     = NULL;
+    const char *artifact_root  = ".liminal";
     const char *run_id_override = NULL;
     bool emit_artifacts = false;
+    bool emit_timeline_flag = false;
     /* ---- ARG PARSING ---- */
     for (int i = 0; i < argc; i++) {
         if (!input_path && argv[i][0] != '-') {
@@ -3045,6 +3144,10 @@ static int cmd_run(int argc, char **argv)
         }
         if (strcmp(argv[i], "--emit-artifacts") == 0) {
             emit_artifacts = true;
+            continue;
+        }
+        if (strcmp(argv[i], "--emit-timeline") == 0) {
+            emit_timeline_flag = true;
             continue;
         }
         if (strcmp(argv[i], "--artifact-dir") == 0) {
@@ -3086,8 +3189,13 @@ static int cmd_run(int argc, char **argv)
     /* ---- ANALYSIS ---- */
     DiagnosticArtifact diagnostics = analyze_diagnostics(u->head);
     diagnostic_dump(&diagnostics);
+    /* ---- POLICY (STAGE 6) ---- */
+    if (cmd_apply_policy(&LIMINAL_DEFAULT_POLICY, &diagnostics) != 0) {
+        ast_program_free(ast);
+        return 1;
+    }
     /* ---- ARTIFACT EMISSION ---- */
-    if (emit_artifacts) {
+    if (emit_artifacts || emit_timeline) {
         time_t now = time(NULL);
         char run_id[64];
         if (run_id_override) {
@@ -3099,9 +3207,15 @@ static int cmd_run(int argc, char **argv)
             .root       = artifact_root,
             .run_id     = run_id,
             .input_path = input_path,
-            .started_at = (unsigned long)now
+            .started_at = (unsigned long)now,
+            .world_head = u->head
         };
-        artifact_emit_all(&ctx, &diagnostics);
+        if (emit_artifacts) {
+            artifact_emit_all(&ctx, &diagnostics);
+        }
+       if (emit_timeline_flag) {
+            emit_timeline(u->head, artifact_root);
+        }
     }
     ast_program_free(ast);
     return 0;
@@ -3117,12 +3231,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "analyze") == 0) {
         if (argc < 3) {
-            printf("error: missing artifact path\n");
+            fprintf(stderr, "error: missing artifact path\n");
             return 1;
         }
         return cmd_analyze(argv[2]);
     }
-    printf("unknown command: %s\n", argv[1]);
+    fprintf(stderr, "unknown command: %s\n", argv[1]);
     print_usage(argv[0]);
     return 1;
 }

@@ -45,9 +45,9 @@ TEST_DIR  := $(TEST_ROOT)/$(TEST_RUN)
 
 SAMPLES := $(sort $(wildcard src/samples/[0-9]*.c))
 
-.PHONY: run-samples
+.PHONY: test
 
-run-samples: liminal
+test: clean liminal
 	@mkdir -p $(TEST_DIR)
 	@echo "== Running Liminal samples =="
 	@echo "Artifacts -> $(TEST_DIR)"
@@ -60,13 +60,10 @@ run-samples: liminal
 		mkdir -p $$outdir; \
 		./liminal run $$f \
 			--emit-artifacts \
+			--emit-timeline \
 			--artifact-dir $$outdir \
 			--run-id analysis; \
 	done
-
-.PHONY: test
-
-test: clean liminal run-samples
 
 # ------------------------------------------------------------
 # Flattened single-file build

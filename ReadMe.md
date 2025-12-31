@@ -160,6 +160,27 @@ Understanding happens arbitrarily many times.
 
 ---
 
+## Policy Enforcement
+
+Liminal separates *diagnostics* from *authority*.
+
+Diagnostics describe semantic facts.
+Policies decide whether those facts are acceptable.
+
+Policies:
+- consume DiagnosticArtifacts only
+- are deterministic
+- may allow, warn, or deny execution
+
+This enables:
+- compiler-style gating
+- audit-only modes
+- strict or permissive semantic regimes
+
+Policy decisions are explicit and visible.
+
+--- 
+
 ## Stage 3: Analyzer
 
 Responsibility:
@@ -271,15 +292,31 @@ liminal analyze <artifact-dir>
 
 ---
 
-## Stage 6: Visualization (Planned)
+## Stage 6: Visualization / Timeline Emission (PARTIAL)
 
 Responsibility:
 Make time visible.
 
+Stage 6 introduces first-class temporal consumers over execution history.
+
 The visualization layer:
-- consumes artifacts only
-- renders timelines, graphs, and comparisons
-- supports interactive exploration
+- consumes World timelines only
+- never re-executes
+- never mutates artifacts
+- renders semantic time explicitly
+
+Current capabilities:
+- linear timeline emission
+- step-by-step temporal traces
+- AST ↔ Step ↔ Time correlation
+- policy-gated execution outcomes
+
+Timeline output is deterministic and derived solely from the World sequence.
+
+Future work:
+- graph visualization
+- interactive inspection
+- cross-run temporal diffing
 
 ---
 
@@ -312,7 +349,7 @@ This stage enables:
 - Stage 3: DONE
 - Stage 4: DONE
 - Stage 5: DONE
-- Stage 6: PLANNED
+- Stage 6: PARTIAL (timeline emission + policy gating)
 - Stage 7: PLANNED
 
 ---

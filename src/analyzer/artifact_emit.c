@@ -4,6 +4,9 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "consumers/timeline_emit.h"
+#include "executor/world.h"
+
 
 static void emit_meta(const ArtifactContext *ctx, const char *dir)
 {
@@ -43,7 +46,7 @@ static void emit_diagnostics(
     fclose(out);
 }
 
-bool artifact_emit_all(
+void artifact_emit_all(
     const ArtifactContext *ctx,
     const DiagnosticArtifact *diagnostics
 )
@@ -51,12 +54,21 @@ bool artifact_emit_all(
     char run_dir[512];
 
     fs_mkdir_if_missing(ctx->root);
-
     snprintf(run_dir, sizeof(run_dir), "%s/%s", ctx->root, ctx->run_id);
     fs_mkdir_if_missing(run_dir);
 
     emit_meta(ctx, run_dir);
     emit_diagnostics(diagnostics, run_dir);
 
-    return true;
+    /* Timeline emission (first-class artifact) */
+    {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/timeline.ndjson", run_dir);
+        FILE *out = fs_open_file(path);
+        if (out) {
+            timeline_emit_ndjson(ctx->world_head, out);
+            fclose(out);
+        }
+    }
 }
+
