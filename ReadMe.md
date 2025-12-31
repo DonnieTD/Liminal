@@ -524,6 +524,10 @@ to exploit research platform.
 - Stage 5: DONE
 - Stage 6: DONE
 - Stage 7: PLANNED
+- Stage A: PLANNED
+- Stage B: PLANNED
+- Stage C: PLANNED
+- Stage D: PLANNED
 
 ---
 
