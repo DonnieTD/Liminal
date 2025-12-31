@@ -1,4 +1,4 @@
-/* LIMINAL_FLAT_MIN 20251231T163043Z */
+/* LIMINAL_FLAT_MIN 20251231T163759Z */
 //@header src/analyzer/diagnostic.h
 #pragma once
 #include <stdint.h>
@@ -23,6 +23,9 @@ typedef struct DiagnosticArtifact {
     Diagnostic *items;
     size_t count;
 } DiagnosticArtifact;
+struct World;
+DiagnosticArtifact analyze_diagnostics(struct World *head);
+void diagnostic_dump(const DiagnosticArtifact *a);
 //@header src/analyzer/lifetime.h
 #ifndef LIMINAL_LIFETIME_H
 #define LIMINAL_LIFETIME_H
@@ -869,6 +872,7 @@ size_t lifetime_collect_scopes(struct World *head,
 #include "frontends/c/ast.h"
 #include "common/hashmap.h"
 #include "common/arena.h"
+#include "analyzer/diagnostic.h"
 #include <stdlib.h>
 #define MAX_SCOPE_DEPTH 64
 #define SHADOW_BUCKETS 32
@@ -929,7 +933,7 @@ static const char *decl_name_from_step(const Step *s)
 /* --------------------------------------------------------- */
 size_t analyze_shadowing(
     struct World *head,
-    ShadowReport *out,
+    Diagnostic *out,
     size_t cap
 ) {
     ShadowFrame stack[MAX_SCOPE_DEPTH];
@@ -961,8 +965,8 @@ size_t analyze_shadowing(
             ShadowDecl *existing = hashmap_get(cur->decls, name);
             if (existing) {
                 if (out && count < cap) {
-                    out[count] = (ShadowReport){
-                        .kind = SHADOW_REDECLARATION,
+                    out[count] = (Diagnostic){
+                        .kind = DIAG_REDECLARATION,
                         .time = w->time,
                         .scope_id = cur->scope_id,
                         .previous_scope_id = cur->scope_id,
@@ -980,8 +984,8 @@ size_t analyze_shadowing(
                 ShadowDecl *outer = hashmap_get(parent->decls, name);
                 if (outer) {
                     if (out && count < cap) {
-                        out[count] = (ShadowReport){
-                            .kind = SHADOW_SHADOWING,
+                        out[count] = (Diagnostic){
+                            .kind = DIAG_SHADOWING,
                             .time = w->time,
                             .scope_id = cur->scope_id,
                             .previous_scope_id = parent->scope_id,
@@ -2300,9 +2304,8 @@ static int cmd_run(const char *path)
     }
     executor_dump(u);
     /* ---- ANALYSIS (Step 3.6) ---- */
-    Diagnostic diags[64];
-    size_t diag_count = analyze_diagnostics(u->head, diags, 64);
-    diagnostic_dump(diags, diag_count);
+    DiagnosticArtifact a = analyze_diagnostics(u->head);
+    diagnostic_dump(&a);
     /* ---- CLEANUP ---- */
     ast_program_free(ast);
     return 0;
