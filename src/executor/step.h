@@ -56,12 +56,9 @@ typedef enum StepKind {
  */
 typedef struct Step {
     StepKind kind;
-
-    /* Pointer to AST node or frontend structure */
-    void *origin;
-
-    /* Kind-specific metadata (ids, line numbers, etc.) */
-    uint64_t info;
+    void    *origin;   // <-- opaque pointer
+    uint64_t info;     // <-- kind-specific ID
 } Step;
+
 
 #endif /* LIMINAL_STEP_H */

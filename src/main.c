@@ -8,12 +8,14 @@
 
 #include "analyzer/trace.h"
 #include "analyzer/use.h"
+#include "analyzer/shadow.h"
 
 #include "frontends/c/ast.h"
 #include "frontends/c/frontend.h"
 
 #include "analyzer/lifetime.h"
 #include "executor/executor.h"
+#include "analyzer/diagnostic.h"
 
 
 /*
@@ -44,8 +46,11 @@ static void print_usage(const char *prog)
 /*
  * Command: run
  *
- * This is a *demonstration scaffold*.
- * No real parsing or execution yet.
+ * Demonstration scaffold:
+ *   - parse AST
+ *   - build execution artifact
+ *   - dump artifacts
+ *   - run selected analysis passes
  */
 static int cmd_run(const char *path)
 {
@@ -54,7 +59,7 @@ static int cmd_run(const char *path)
         return 1;
     }
 
-    /* ---- FRONTEND: parse source -> AST artifact ---- */
+    /* ---- FRONTEND ---- */
 
     ASTProgram *ast = c_parse_file_to_ast(path);
     if (!ast) {
@@ -62,11 +67,9 @@ static int cmd_run(const char *path)
         return 1;
     }
 
-    /* ---- FRONTEND ARTIFACT ---- */
-
     ast_dump(ast);
 
-    /* ---- EXECUTOR: AST -> World timeline ---- */
+    /* ---- EXECUTOR ---- */
 
     Universe *u = executor_build(ast);
     if (!u) {
@@ -75,28 +78,22 @@ static int cmd_run(const char *path)
         return 1;
     }
 
-    /* ---- EXECUTION ARTIFACT ---- */
-
     executor_dump(u);
 
-    /*
-     * NOTE:
-     * - Universe owns all executor memory via arenas
-     * - No destruction yet (process-lifetime ownership is fine)
-     * - Analysis is NOT invoked here
-     */
+    /* ---- ANALYSIS (Step 3.6) ---- */
 
-    /* ---- CLEANUP (frontend only) ---- */
+    DiagnosticArtifact a = analyze_diagnostics(u->head);
+    diagnostic_dump(&a);
+
+    /* ---- CLEANUP ---- */
 
     ast_program_free(ast);
-
     return 0;
 }
-
 /*
  * Command: analyze
  *
- * Placeholder for analysis pipeline.
+ * Placeholder for future offline analysis pipeline.
  */
 static int cmd_analyze(const char *path)
 {

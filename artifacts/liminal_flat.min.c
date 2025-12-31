@@ -1,4 +1,28 @@
-/* LIMINAL_FLAT_MIN 20251231T153304Z */
+/* LIMINAL_FLAT_MIN 20251231T163043Z */
+//@header src/analyzer/diagnostic.h
+#pragma once
+#include <stdint.h>
+#include <stddef.h>
+struct ASTNode;
+typedef enum DiagnosticKind {
+    DIAG_REDECLARATION,
+    DIAG_SHADOWING,
+    DIAG_USE_BEFORE_DECLARE,
+    DIAG_USE_AFTER_SCOPE_EXIT,
+} DiagnosticKind;
+typedef struct Diagnostic {
+    DiagnosticKind kind;
+    uint64_t time;
+    uint64_t scope_id;
+    uint64_t previous_scope_id;
+    const char *name;
+    const struct ASTNode *origin;
+    const struct ASTNode *previous_origin;
+} Diagnostic;
+typedef struct DiagnosticArtifact {
+    Diagnostic *items;
+    size_t count;
+} DiagnosticArtifact;
 //@header src/analyzer/lifetime.h
 #ifndef LIMINAL_LIFETIME_H
 #define LIMINAL_LIFETIME_H
@@ -22,6 +46,29 @@ size_t lifetime_collect_scopes(struct World *head,
                                ScopeLifetime *out,
                                size_t cap);
 #endif /* LIMINAL_LIFETIME_H */
+//@header src/analyzer/shadow.h
+#ifndef ANALYZER_SHADOW_H
+#define ANALYZER_SHADOW_H
+#include <stddef.h>
+#include <stdint.h>
+#include "analyzer/diagnostic.h"
+struct World;
+/*
+ * Analyze variable shadowing and redeclaration.
+ *
+ * Emits diagnostics:
+ *  - DIAG_REDECLARATION
+ *  - DIAG_SHADOWING
+ *
+ * Returns number of diagnostics written
+ * (or that would be written if out == NULL).
+ */
+size_t analyze_shadowing(
+    struct World *head,
+    Diagnostic *out,
+    size_t cap
+);
+#endif /* ANALYZER_SHADOW_H */
 //@header src/analyzer/trace.h
 #ifndef LIMINAL_TRACE_H
 #define LIMINAL_TRACE_H
@@ -107,6 +154,16 @@ typedef struct UseReport {
     UseKind  kind;
 } UseReport;
 #endif
+//@header src/analyzer/use_validate.h
+#pragma once
+#include <stddef.h>
+#include "executor/world.h"        // ✅ REQUIRED
+#include "analyzer/diagnostic.h"
+size_t analyze_use_validation(
+    struct World *head,
+    Diagnostic *out,
+    size_t cap
+);
 //@header src/analyzer/validate.h
 #ifndef LIMINAL_VALIDATE_H
 #define LIMINAL_VALIDATE_H
@@ -439,10 +496,8 @@ typedef enum StepKind {
  */
 typedef struct Step {
     StepKind kind;
-    /* Pointer to AST node or frontend structure */
-    void *origin;
-    /* Kind-specific metadata (ids, line numbers, etc.) */
-    uint64_t info;
+    void    *origin;   // <-- opaque pointer
+    uint64_t info;     // <-- kind-specific ID
 } Step;
 #endif /* LIMINAL_STEP_H */
 //@header src/executor/storage.h
@@ -704,6 +759,53 @@ int   lexer_accept(Lexer *lx, TokKind k);
  */
 ASTProgram *parse_translation_unit(Lexer *lx);
 #endif /* LIMINAL_C_PARSER_H */
+//@source src/analyzer/diagnostic.c
+#include "analyzer/diagnostic.h"
+#include "analyzer/shadow.h"
+#include "analyzer/use_validate.h"
+#include <stdlib.h>
+DiagnosticArtifact analyze_diagnostics(struct World *head)
+{
+    size_t cap = 128;
+    Diagnostic *buf = calloc(cap, sizeof(Diagnostic));
+    size_t count = 0;
+    count += analyze_shadowing(head, buf + count, cap - count);
+    count += analyze_use_validation(head, buf + count, cap - count);
+    return (DiagnosticArtifact){
+        .items = buf,
+        .count = count
+    };
+}
+//@source src/analyzer/diagnostic_dump.c
+#include "analyzer/diagnostic.h"
+#include <stdio.h>
+static const char *kind_str(DiagnosticKind k)
+{
+    switch (k) {
+    case DIAG_REDECLARATION: return "REDECLARATION";
+    case DIAG_SHADOWING: return "SHADOWING";
+    case DIAG_USE_BEFORE_DECLARE: return "USE_BEFORE_DECLARE";
+    case DIAG_USE_AFTER_SCOPE_EXIT: return "USE_AFTER_SCOPE_EXIT";
+    default: return "UNKNOWN";
+    }
+}
+void diagnostic_dump(const DiagnosticArtifact *a)
+{
+    if (a->count == 0)
+        return;
+    printf("\n-- DIAGNOSTICS --\n");
+    for (size_t i = 0; i < a->count; i++) {
+        const Diagnostic *d = &a->items[i];
+        printf(
+            "time=%llu %s name=%s scope=%llu prev_scope=%llu\n",
+            (unsigned long long)d->time,
+            kind_str(d->kind),
+            d->name ? d->name : "?",
+            (unsigned long long)d->scope_id,
+            (unsigned long long)d->previous_scope_id
+        );
+    }
+}
 //@source src/analyzer/lifetime.c
 #include <stdint.h>
 #include <stddef.h>
@@ -759,6 +861,158 @@ size_t lifetime_collect_scopes(struct World *head,
         trace_next(&t);
     }
     return n;
+}
+//@source src/analyzer/shadow.c
+#include "analyzer/shadow.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include "frontends/c/ast.h"
+#include "common/hashmap.h"
+#include "common/arena.h"
+#include <stdlib.h>
+#define MAX_SCOPE_DEPTH 64
+#define SHADOW_BUCKETS 32
+/* ---------------------------------------------------------
+ * Analyzer-owned arena
+ *
+ * Shadow analysis memory is process-lifetime.
+ * This arena is never reset or destroyed (by design).
+ * --------------------------------------------------------- */
+static Arena shadow_arena;
+static int shadow_arena_initialized = 0;
+static void ensure_shadow_arena(void)
+{
+    if (!shadow_arena_initialized) {
+        arena_init(&shadow_arena, 64 * 1024);
+        shadow_arena_initialized = 1;
+    }
+}
+/* ---------------------------------------------------------
+ * Per-scope declaration record (internal only)
+ * --------------------------------------------------------- */
+typedef struct ShadowDecl {
+    const char    *name;
+    uint64_t       scope_id;
+    uint64_t       time;
+    const ASTNode *origin;
+} ShadowDecl;
+typedef struct ShadowFrame {
+    uint64_t scope_id;
+    HashMap *decls; /* name -> ShadowDecl* */
+} ShadowFrame;
+/* --------------------------------------------------------- */
+static ShadowFrame shadow_frame_new(uint64_t scope_id)
+{
+    ensure_shadow_arena();
+    ShadowFrame f;
+    f.scope_id = scope_id;
+    f.decls = hashmap_create(&shadow_arena, SHADOW_BUCKETS);
+    return f;
+}
+/* No-op by design: arena-backed, process-lifetime */
+static void shadow_frame_free(ShadowFrame *f)
+{
+    (void)f;
+}
+/* ---------------------------------------------------------
+ * Extract variable name from STEP_DECLARE origin
+ * --------------------------------------------------------- */
+static const char *decl_name_from_step(const Step *s)
+{
+    if (!s || !s->origin)
+        return NULL;
+    const ASTNode *n = (const ASTNode *)s->origin;
+    if (n->kind != AST_VAR_DECL)
+        return NULL;
+    return n->as.vdecl.name;
+}
+/* --------------------------------------------------------- */
+size_t analyze_shadowing(
+    struct World *head,
+    ShadowReport *out,
+    size_t cap
+) {
+    ShadowFrame stack[MAX_SCOPE_DEPTH];
+    size_t depth = 0;
+    size_t count = 0;
+    for (World *w = head; w; w = w->next) {
+        Step *s = w->step;
+        if (!s)
+            continue;
+        switch (s->kind) {
+        case STEP_ENTER_SCOPE:
+            if (depth < MAX_SCOPE_DEPTH) {
+                stack[depth++] = shadow_frame_new(s->info);
+            }
+            break;
+        case STEP_EXIT_SCOPE:
+            if (depth > 0) {
+                shadow_frame_free(&stack[--depth]);
+            }
+            break;
+        case STEP_DECLARE: {
+            if (depth == 0)
+                break;
+            const char *name = decl_name_from_step(s);
+            if (!name)
+                break;
+            ShadowFrame *cur = &stack[depth - 1];
+            /* 1. Redeclaration in same scope */
+            ShadowDecl *existing = hashmap_get(cur->decls, name);
+            if (existing) {
+                if (out && count < cap) {
+                    out[count] = (ShadowReport){
+                        .kind = SHADOW_REDECLARATION,
+                        .time = w->time,
+                        .scope_id = cur->scope_id,
+                        .previous_scope_id = cur->scope_id,
+                        .name = name,
+                        .origin = s->origin,
+                        .previous_origin = existing->origin
+                    };
+                }
+                count++;
+                break;
+            }
+            /* 2. Shadowing outer scopes */
+            for (size_t i = depth - 1; i-- > 0;) {
+                ShadowFrame *parent = &stack[i];
+                ShadowDecl *outer = hashmap_get(parent->decls, name);
+                if (outer) {
+                    if (out && count < cap) {
+                        out[count] = (ShadowReport){
+                            .kind = SHADOW_SHADOWING,
+                            .time = w->time,
+                            .scope_id = cur->scope_id,
+                            .previous_scope_id = parent->scope_id,
+                            .name = name,
+                            .origin = s->origin,
+                            .previous_origin = outer->origin
+                        };
+                    }
+                    count++;
+                    break;
+                }
+            }
+            /* Record declaration */
+            ShadowDecl *decl =
+                arena_alloc(&shadow_arena, sizeof(ShadowDecl));
+            if (!decl)
+                break;
+            *decl = (ShadowDecl){
+                .name = name,
+                .scope_id = cur->scope_id,
+                .time = w->time,
+                .origin = s->origin
+            };
+            hashmap_put(cur->decls, name, decl);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    return count;
 }
 //@source src/analyzer/trace.c
 #include "analyzer/trace.h"
@@ -822,181 +1076,94 @@ int trace_is_valid(const Trace *t)
     return t && t->current;
 }
 //@source src/analyzer/use_validate.c
-#include "analyzer/use.h"
+#include "analyzer/use_validate.h"
 #include "executor/world.h"
-#include "executor/step.h"
-#include "analyzer/lifetime.h"
-#include "executor/scope.h"
-size_t analyze_step_use(
-    const World *worlds,
-    const ScopeLifetime *lifetimes,
-    size_t lifetime_count,
-    UseReport *out,
+/*
+ * analyze_use_validation
+ *
+ * Step 3.x placeholder.
+ *
+ * This pass will eventually:
+ *  - analyze STEP_USE events
+ *  - correlate against variable + scope lifetimes
+ *  - emit diagnostics
+ *
+ * For now:
+ *  - it is a no-op
+ *  - required only to satisfy the diagnostic pipeline
+ */
+size_t analyze_use_validation(
+    struct World *head,
+    Diagnostic *out,
     size_t cap
 ) {
-    // unused var fix
-    (void)lifetimes;
-    (void)lifetime_count;
-    size_t n = 0;
-    for (const World *w = worlds; w; w = w->next) {
-        if (!w->step || w->step->kind != STEP_USE)
-            continue;
-        if (n >= cap)
-            break;
-        UseReport *r = &out[n++];
-        r->time = w->time;
-        r->scope_id = w->active_scope ? w->active_scope->id : 0;
-        r->storage_id = w->step->info; /* or UINT64_MAX if unresolved */
-        r->kind = USE_OK; /* refined later */
-    }
-    return n;
+    (void)head;
+    (void)out;
+    (void)cap;
+    return 0;
 }
 //@source src/analyzer/validate.c
-#include <stddef.h>
-#include <stdint.h>
 #include "analyzer/validate.h"
 #include "analyzer/trace.h"
 #include "executor/world.h"
 #include "executor/step.h"
-#include "executor/scope.h"
-/*
- * validate_scope_invariants
- *
- * This function reconstructs the *expected* scope structure
- * from STEP_ENTER_SCOPE and STEP_EXIT_SCOPE events alone.
- *
- * It intentionally does NOT trust:
- *   - World.active_scope
- *   - frontend assumptions
- *   - executor correctness
- *
- * Instead, it derives a shadow "scope stack" and checks
- * that the recorded World state agrees with it.
- *
- * This makes the validator capable of catching:
- *   - missing exits
- *   - extra exits
- *   - wrong exit order
- *   - incorrect active_scope propagation
- */
-size_t validate_scope_invariants(struct World *head,
-                                 ScopeViolation *out,
-                                 size_t cap)
-{
-    /* Defensive: invalid input yields no violations */
-    if (!head || !out || cap == 0) {
-        return 0;
-    }
-    /*
-     * Manual scope stack.
-     *
-     * We only store scope IDs, not pointers.
-     * This keeps validation purely structural.
-     *
-     * Depth is intentionally bounded:
-     *   - makes behavior deterministic
-     *   - avoids allocation
-     *   - signals insane nesting immediately
-     */
-    uint64_t stack[128];
+#define MAX_SCOPE_DEPTH 128
+size_t validate_scope_invariants(
+    struct World *head,
+    ScopeViolation *out,
+    size_t cap
+) {
+    uint64_t stack[MAX_SCOPE_DEPTH];
     size_t depth = 0;
-    /* Number of violations recorded */
-    size_t n = 0;
-    /*
-     * Iterate forward through time using the Trace.
-     *
-     * The Trace is the membrane between execution and analysis.
-     */
+    size_t count = 0;
     Trace t = trace_begin(head);
     while (trace_is_valid(&t)) {
         World *w = trace_current(&t);
-        /* Skip Worlds with no causal step */
         if (!w || !w->step) {
             trace_next(&t);
             continue;
         }
         Step *s = w->step;
-        /*
-         * Handle ENTER_SCOPE
-         *
-         * We push the scope id onto our shadow stack.
-         */
         if (s->kind == STEP_ENTER_SCOPE) {
-            if (depth < 128) {
+            if (depth < MAX_SCOPE_DEPTH) {
                 stack[depth++] = s->info;
             }
-            /* If depth exceeds capacity, we silently ignore
-             * additional nesting for now. This is intentional:
-             * analysis must remain total.
-             */
         }
-        /*
-         * Handle EXIT_SCOPE
-         *
-         * We expect to pop the most recent scope.
-         */
         else if (s->kind == STEP_EXIT_SCOPE) {
-            /* No active scopes → illegal exit */
             if (depth == 0) {
-                if (n < cap) {
-                    out[n++] = (ScopeViolation){
-                        .kind     = SCOPE_EXIT_WITHOUT_ENTER,
-                        .time     = w->time,
+                if (count < cap) {
+                    out[count++] = (ScopeViolation){
+                        .kind = SCOPE_EXIT_WITHOUT_ENTER,
+                        .time = w->time,
                         .scope_id = s->info
                     };
                 }
             } else {
                 uint64_t expected = stack[depth - 1];
-                /* Exiting a scope that is not on top of stack */
                 if (expected != s->info) {
-                    if (n < cap) {
-                        out[n++] = (ScopeViolation){
-                            .kind     = SCOPE_NON_LIFO_EXIT,
-                            .time     = w->time,
+                    if (count < cap) {
+                        out[count++] = (ScopeViolation){
+                            .kind = SCOPE_NON_LIFO_EXIT,
+                            .time = w->time,
                             .scope_id = s->info
                         };
                     }
                 } else {
-                    /* Correctly nested exit */
                     depth--;
                 }
             }
         }
-        /*
-         * Validate active_scope consistency
-         *
-         * World.active_scope must reflect the top of our
-         * derived scope stack.
-         *
-         * This catches executor bookkeeping bugs.
-         */
-        uint64_t active =
-            w->active_scope ? w->active_scope->id : 0;
-        uint64_t expected =
-            (depth > 0) ? stack[depth - 1] : 0;
-        if (active != expected) {
-            if (n < cap) {
-                out[n++] = (ScopeViolation){
-                    .kind     = SCOPE_ACTIVE_MISMATCH,
-                    .time     = w->time,
-                    .scope_id = active
-                };
-            }
-        }
         trace_next(&t);
     }
-    /*
-     * Any scopes left on the stack at end-of-trace
-     * were entered but never exited.
-     */
-    for (size_t i = 0; i < depth && n < cap; i++) {
-        out[n++] = (ScopeViolation){
-            .kind     = SCOPE_ENTER_WITHOUT_EXIT,
-            .time     = UINT64_MAX,
+    /* Unclosed scopes */
+    for (size_t i = 0; i < depth && count < cap; i++) {
+        out[count++] = (ScopeViolation){
+            .kind = SCOPE_ENTER_WITHOUT_EXIT,
+            .time = UINT64_MAX,
             .scope_id = stack[i]
         };
     }
-    return n;
+    return count;
 }
 //@source src/analyzer/variable_lifetime.c
 #include "analyzer/variable_lifetime.h"
@@ -1004,10 +1171,11 @@ size_t validate_scope_invariants(struct World *head,
 #include "executor/world.h"
 #include "executor/step.h"
 #include "executor/scope.h"
-size_t lifetime_collect_variables(struct World *head,
-                                  VariableLifetime *out,
-                                  size_t cap)
-{
+size_t lifetime_collect_variables(
+    struct World *head,
+    VariableLifetime *out,
+    size_t cap
+) {
     size_t n = 0;
     Trace t = trace_begin(head);
     while (trace_is_valid(&t)) {
@@ -1017,12 +1185,11 @@ size_t lifetime_collect_variables(struct World *head,
             if (n >= cap) break;
             out[n++] = (VariableLifetime){
                 .var_id        = s->info,
-                .scope_id      = w->active_scope->id,
+                .scope_id      = w->active_scope ? w->active_scope->id : 0,
                 .declare_time  = w->time,
                 .end_time      = UINT64_MAX
             };
         }
-        /* Close variables on scope exit */
         if (s && s->kind == STEP_EXIT_SCOPE) {
             uint64_t sid = s->info;
             for (size_t i = 0; i < n; i++) {
@@ -1304,6 +1471,15 @@ static void exec_node(Universe *u,
         break;
     }
 }
+/*
+    Dump execution artifact (read-only)
+    By convention, WORLD[1] is the initial world.
+    How:
+        1. Iterate worlds in order
+        2. Print step info
+        3. Print relevant metadata
+        4. Done
+*/
 void executor_dump(const Universe *u)
 {
     if (!u || !u->head) {
@@ -1320,18 +1496,24 @@ void executor_dump(const Universe *u)
         printf("  STEP[%llu] ",
                (unsigned long long)w->time);
         switch (s->kind) {
-            case STEP_ENTER_PROGRAM:   printf("ENTER_PROGRAM"); break;
-            case STEP_EXIT_PROGRAM:    printf("EXIT_PROGRAM"); break;
-            case STEP_ENTER_FUNCTION:  printf("ENTER_FUNCTION"); break;
-            case STEP_EXIT_FUNCTION:   printf("EXIT_FUNCTION"); break;
-            case STEP_ENTER_SCOPE:     printf("ENTER_SCOPE"); break;
-            case STEP_EXIT_SCOPE:      printf("EXIT_SCOPE"); break;
-            case STEP_RETURN:          printf("RETURN"); break;
-        default:                   printf("UNKNOWN"); break;
+        case STEP_ENTER_PROGRAM:  printf("ENTER_PROGRAM");  break;
+        case STEP_EXIT_PROGRAM:   printf("EXIT_PROGRAM");   break;
+        case STEP_ENTER_FUNCTION: printf("ENTER_FUNCTION"); break;
+        case STEP_EXIT_FUNCTION:  printf("EXIT_FUNCTION");  break;
+        case STEP_ENTER_SCOPE:    printf("ENTER_SCOPE");    break;
+        case STEP_EXIT_SCOPE:     printf("EXIT_SCOPE");     break;
+        case STEP_RETURN:         printf("RETURN");         break;
+        case STEP_DECLARE:        printf("DECLARE");        break;
+        case STEP_USE:            printf("USE");            break;
+        default:                  printf("UNKNOWN");        break;
         }
         if (s->origin) {
             ASTNode *n = (ASTNode *)s->origin;
-            printf(" ast=%d", n->id);
+            printf(" ast=%u", n->id);
+        }
+        if (s->kind == STEP_DECLARE || s->kind == STEP_USE) {
+            printf(" storage=%llu",
+                   (unsigned long long)s->info);
         }
         printf("\n");
     }
@@ -1906,6 +2088,9 @@ int lexer_accept(Lexer *lx, TokKind k)
 #include <stdlib.h>
 #include <string.h>
 #include "frontends/c/parser.h"
+// Forward Declarations
+static uint32_t parse_block(ASTProgram *p, Lexer *lx);
+static uint32_t parse_statement(ASTProgram *p, Lexer *lx);
 /*
  * Parse a C translation unit.
  *
@@ -1935,51 +2120,15 @@ ASTProgram *parse_translation_unit(Lexer *lx)
     /* Expect: { */
     if (!lexer_accept(lx, TOK_LBRACE)) goto fail;
     /* ---- Parse statements ---- */
-    uint32_t stmts[16];
+    uint32_t stmts[64];
     size_t stmt_count = 0;
     for (;;) {
-        /* End of block */
-        if (lexer_accept(lx, TOK_RBRACE)) {
+        if (lexer_accept(lx, TOK_RBRACE))
             break;
-        }
-        /* int <ident> ; */
-        if (lexer_accept(lx, TOK_INT)) {
-            Token id = lexer_next(lx);
-            if (id.kind != TOK_IDENT) goto fail;
-            if (!lexer_accept(lx, TOK_SEMI)) goto fail;
-            uint32_t node_id = ast_add_node(p, AST_VAR_DECL, z);
-            ASTNode *vd = ast_node_get(p, node_id);
-            vd->as.vdecl.name = strndup(id.lexeme, id.len);
-            stmts[stmt_count++] = node_id;
-            continue;
-        }
-        /* return <int> ; */
-        if (lexer_accept(lx, TOK_RETURN)) {
-            Token lit = lexer_next(lx);
-            if (lit.kind != TOK_INT_LIT) goto fail;
-            if (!lexer_accept(lx, TOK_SEMI)) goto fail;
-            uint32_t node_id = ast_add_node(p, AST_RETURN, z);
-            ASTNode *r = ast_node_get(p, node_id);
-            r->as.ret.value = 0; /* literal ignored for now */
-            stmts[stmt_count++] = node_id;
-            continue;
-        }
-        /* <ident> ;  → variable use */
-        {
-            size_t save = lx->pos;
-            Token id = lexer_next(lx);
-            if (id.kind == TOK_IDENT) {
-                if (lexer_accept(lx, TOK_SEMI)) {
-                    uint32_t node_id = ast_add_node(p, AST_VAR_USE, z);
-                    ASTNode *vu = ast_node_get(p, node_id);
-                    vu->as.vuse.name = strndup(id.lexeme, id.len);
-                    stmts[stmt_count++] = node_id;
-                    continue;
-                }
-            }
-            lx->pos = save;
-        }
-        goto fail;
+        uint32_t stmt = parse_statement(p, lx);
+        if (stmt == 0)
+            goto fail;
+        stmts[stmt_count++] = stmt;
     }
     /* ---- Build structural AST ---- */
     uint32_t prog_id = ast_add_node(p, AST_PROGRAM, z);
@@ -2007,6 +2156,81 @@ fail:
     ast_program_free(p);
     return NULL;
 }
+static uint32_t parse_block(ASTProgram *p, Lexer *lx)
+{
+    ASTSpan z = { .line = 1, .col = 1 };
+    uint32_t stmt_ids[64];
+    size_t stmt_count = 0;
+    for (;;) {
+        /* End of block */
+        if (lexer_accept(lx, TOK_RBRACE)) {
+            break;
+        }
+        uint32_t stmt = parse_statement(p, lx);
+        if (stmt == 0) {
+            return 0; /* parse error */
+        }
+        stmt_ids[stmt_count++] = stmt;
+    }
+    uint32_t block_id = ast_add_node(p, AST_BLOCK, z);
+    ASTNode *blk = ast_node_get(p, block_id);
+    blk->as.block.stmt_ids =
+        malloc(sizeof(uint32_t) * stmt_count);
+    if (!blk->as.block.stmt_ids)
+        return 0;
+    memcpy(
+        blk->as.block.stmt_ids,
+        stmt_ids,
+        sizeof(uint32_t) * stmt_count
+    );
+    blk->as.block.stmt_count = stmt_count;
+    return block_id;
+}
+static uint32_t parse_statement(ASTProgram *p, Lexer *lx)
+{
+    ASTSpan z = { .line = 1, .col = 1 };
+    /* Nested block */
+    if (lexer_accept(lx, TOK_LBRACE)) {
+        return parse_block(p, lx);
+    }
+    /* int <ident> ; */
+    if (lexer_accept(lx, TOK_INT)) {
+        Token id = lexer_next(lx);
+        if (id.kind != TOK_IDENT)
+            return 0;
+        if (!lexer_accept(lx, TOK_SEMI))
+            return 0;
+        uint32_t node_id = ast_add_node(p, AST_VAR_DECL, z);
+        ASTNode *vd = ast_node_get(p, node_id);
+        vd->as.vdecl.name = strndup(id.lexeme, id.len);
+        return node_id;
+    }
+    /* return <int> ; */
+    if (lexer_accept(lx, TOK_RETURN)) {
+        Token lit = lexer_next(lx);
+        if (lit.kind != TOK_INT_LIT)
+            return 0;
+        if (!lexer_accept(lx, TOK_SEMI))
+            return 0;
+        uint32_t node_id = ast_add_node(p, AST_RETURN, z);
+        ASTNode *r = ast_node_get(p, node_id);
+        r->as.ret.value = 0;
+        return node_id;
+    }
+    /* <ident> ; → variable use */
+    {
+        size_t save = lx->pos;
+        Token id = lexer_next(lx);
+        if (id.kind == TOK_IDENT && lexer_accept(lx, TOK_SEMI)) {
+            uint32_t node_id = ast_add_node(p, AST_VAR_USE, z);
+            ASTNode *vu = ast_node_get(p, node_id);
+            vu->as.vuse.name = strndup(id.lexeme, id.len);
+            return node_id;
+        }
+        lx->pos = save;
+    }
+    return 0;
+}
 //@source src/main.c
 #include <stdio.h>
 #include <string.h>
@@ -2016,10 +2240,12 @@ fail:
 #include "executor/scope.h"
 #include "analyzer/trace.h"
 #include "analyzer/use.h"
+#include "analyzer/shadow.h"
 #include "frontends/c/ast.h"
 #include "frontends/c/frontend.h"
 #include "analyzer/lifetime.h"
 #include "executor/executor.h"
+#include "analyzer/diagnostic.h"
 /*
  * Liminal CLI entry point
  *
@@ -2046,8 +2272,11 @@ static void print_usage(const char *prog)
 /*
  * Command: run
  *
- * This is a *demonstration scaffold*.
- * No real parsing or execution yet.
+ * Demonstration scaffold:
+ *   - parse AST
+ *   - build execution artifact
+ *   - dump artifacts
+ *   - run selected analysis passes
  */
 static int cmd_run(const char *path)
 {
@@ -2055,37 +2284,33 @@ static int cmd_run(const char *path)
         fprintf(stderr, "error: no input file\n");
         return 1;
     }
-    /* ---- FRONTEND: parse source -> AST artifact ---- */
+    /* ---- FRONTEND ---- */
     ASTProgram *ast = c_parse_file_to_ast(path);
     if (!ast) {
         fprintf(stderr, "failed to parse AST\n");
         return 1;
     }
-    /* ---- FRONTEND ARTIFACT ---- */
     ast_dump(ast);
-    /* ---- EXECUTOR: AST -> World timeline ---- */
+    /* ---- EXECUTOR ---- */
     Universe *u = executor_build(ast);
     if (!u) {
         fprintf(stderr, "failed to build execution artifact\n");
         ast_program_free(ast);
         return 1;
     }
-    /* ---- EXECUTION ARTIFACT ---- */
     executor_dump(u);
-    /*
-     * NOTE:
-     * - Universe owns all executor memory via arenas
-     * - No destruction yet (process-lifetime ownership is fine)
-     * - Analysis is NOT invoked here
-     */
-    /* ---- CLEANUP (frontend only) ---- */
+    /* ---- ANALYSIS (Step 3.6) ---- */
+    Diagnostic diags[64];
+    size_t diag_count = analyze_diagnostics(u->head, diags, 64);
+    diagnostic_dump(diags, diag_count);
+    /* ---- CLEANUP ---- */
     ast_program_free(ast);
     return 0;
 }
 /*
  * Command: analyze
  *
- * Placeholder for analysis pipeline.
+ * Placeholder for future offline analysis pipeline.
  */
 static int cmd_analyze(const char *path)
 {

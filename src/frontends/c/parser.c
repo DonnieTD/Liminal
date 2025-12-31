@@ -2,6 +2,10 @@
 #include <string.h>
 #include "frontends/c/parser.h"
 
+// Forward Declarations
+static uint32_t parse_block(ASTProgram *p, Lexer *lx);
+static uint32_t parse_statement(ASTProgram *p, Lexer *lx);
+
 /*
  * Parse a C translation unit.
  *
@@ -38,65 +42,19 @@ ASTProgram *parse_translation_unit(Lexer *lx)
 
     /* ---- Parse statements ---- */
 
-    uint32_t stmts[16];
+    uint32_t stmts[64];
     size_t stmt_count = 0;
 
     for (;;) {
-        /* End of block */
-        if (lexer_accept(lx, TOK_RBRACE)) {
+        if (lexer_accept(lx, TOK_RBRACE))
             break;
-        }
 
-        /* int <ident> ; */
-        if (lexer_accept(lx, TOK_INT)) {
-            Token id = lexer_next(lx);
-            if (id.kind != TOK_IDENT) goto fail;
-            if (!lexer_accept(lx, TOK_SEMI)) goto fail;
+        uint32_t stmt = parse_statement(p, lx);
+        if (stmt == 0)
+            goto fail;
 
-            uint32_t node_id = ast_add_node(p, AST_VAR_DECL, z);
-            ASTNode *vd = ast_node_get(p, node_id);
-            vd->as.vdecl.name = strndup(id.lexeme, id.len);
-
-            stmts[stmt_count++] = node_id;
-            continue;
-        }
-
-        /* return <int> ; */
-        if (lexer_accept(lx, TOK_RETURN)) {
-            Token lit = lexer_next(lx);
-            if (lit.kind != TOK_INT_LIT) goto fail;
-            if (!lexer_accept(lx, TOK_SEMI)) goto fail;
-
-            uint32_t node_id = ast_add_node(p, AST_RETURN, z);
-            ASTNode *r = ast_node_get(p, node_id);
-            r->as.ret.value = 0; /* literal ignored for now */
-
-            stmts[stmt_count++] = node_id;
-            continue;
-        }
-
-        /* <ident> ;  → variable use */
-        {
-            size_t save = lx->pos;
-            Token id = lexer_next(lx);
-
-            if (id.kind == TOK_IDENT) {
-                if (lexer_accept(lx, TOK_SEMI)) {
-                    uint32_t node_id = ast_add_node(p, AST_VAR_USE, z);
-                    ASTNode *vu = ast_node_get(p, node_id);
-                    vu->as.vuse.name = strndup(id.lexeme, id.len);
-
-                    stmts[stmt_count++] = node_id;
-                    continue;
-                }
-            }
-
-            lx->pos = save;
-        }
-
-        goto fail;
+        stmts[stmt_count++] = stmt;
     }
-
     /* ---- Build structural AST ---- */
 
     uint32_t prog_id = ast_add_node(p, AST_PROGRAM, z);
@@ -130,4 +88,97 @@ ASTProgram *parse_translation_unit(Lexer *lx)
 fail:
     ast_program_free(p);
     return NULL;
+}
+
+
+static uint32_t parse_block(ASTProgram *p, Lexer *lx)
+{
+    ASTSpan z = { .line = 1, .col = 1 };
+
+    uint32_t stmt_ids[64];
+    size_t stmt_count = 0;
+
+    for (;;) {
+        /* End of block */
+        if (lexer_accept(lx, TOK_RBRACE)) {
+            break;
+        }
+
+        uint32_t stmt = parse_statement(p, lx);
+        if (stmt == 0) {
+            return 0; /* parse error */
+        }
+
+        stmt_ids[stmt_count++] = stmt;
+    }
+
+    uint32_t block_id = ast_add_node(p, AST_BLOCK, z);
+    ASTNode *blk = ast_node_get(p, block_id);
+
+    blk->as.block.stmt_ids =
+        malloc(sizeof(uint32_t) * stmt_count);
+    if (!blk->as.block.stmt_ids)
+        return 0;
+
+    memcpy(
+        blk->as.block.stmt_ids,
+        stmt_ids,
+        sizeof(uint32_t) * stmt_count
+    );
+    blk->as.block.stmt_count = stmt_count;
+
+    return block_id;
+}
+
+static uint32_t parse_statement(ASTProgram *p, Lexer *lx)
+{
+    ASTSpan z = { .line = 1, .col = 1 };
+
+    /* Nested block */
+    if (lexer_accept(lx, TOK_LBRACE)) {
+        return parse_block(p, lx);
+    }
+
+    /* int <ident> ; */
+    if (lexer_accept(lx, TOK_INT)) {
+        Token id = lexer_next(lx);
+        if (id.kind != TOK_IDENT)
+            return 0;
+        if (!lexer_accept(lx, TOK_SEMI))
+            return 0;
+
+        uint32_t node_id = ast_add_node(p, AST_VAR_DECL, z);
+        ASTNode *vd = ast_node_get(p, node_id);
+        vd->as.vdecl.name = strndup(id.lexeme, id.len);
+        return node_id;
+    }
+
+    /* return <int> ; */
+    if (lexer_accept(lx, TOK_RETURN)) {
+        Token lit = lexer_next(lx);
+        if (lit.kind != TOK_INT_LIT)
+            return 0;
+        if (!lexer_accept(lx, TOK_SEMI))
+            return 0;
+
+        uint32_t node_id = ast_add_node(p, AST_RETURN, z);
+        ASTNode *r = ast_node_get(p, node_id);
+        r->as.ret.value = 0;
+        return node_id;
+    }
+
+    /* <ident> ; → variable use */
+    {
+        size_t save = lx->pos;
+        Token id = lexer_next(lx);
+        if (id.kind == TOK_IDENT && lexer_accept(lx, TOK_SEMI)) {
+            uint32_t node_id = ast_add_node(p, AST_VAR_USE, z);
+            ASTNode *vu = ast_node_get(p, node_id);
+            vu->as.vuse.name = strndup(id.lexeme, id.len);
+            return node_id;
+        }
+        lx->pos = save;
+    }
+
+    return 0;
 }
