@@ -16,26 +16,26 @@
 typedef enum StepKind {
     STEP_UNKNOWN = 0,
 
-    /* Structural (lexical / control structure) */
-    STEP_ENTER_SCOPE,
-    STEP_EXIT_SCOPE,
+    /* Structural */
+    STEP_ENTER_PROGRAM,
+    STEP_EXIT_PROGRAM,
 
-    /* Control flow */
-    STEP_CALL,
+    STEP_ENTER_FUNCTION,
+    STEP_EXIT_FUNCTION,
+
+
+    /* Statements */
     STEP_RETURN,
 
-    /* Declarations */
-    STEP_DECLARE,   /* introduce a variable */
-
-    /* Variable access (future) */
-    STEP_USE,       /* read a variable */
-    STEP_ASSIGN,    /* write a variable */
-
-    /* Memory (future) */
+    /* Existing (unused yet) */
+    STEP_ENTER_SCOPE,
+    STEP_EXIT_SCOPE,
+    STEP_CALL,
+    STEP_DECLARE,
+    STEP_USE,
+    STEP_ASSIGN,
     STEP_LOAD,
     STEP_STORE,
-
-    /* Fallback / extension */
     STEP_OTHER
 } StepKind;
 

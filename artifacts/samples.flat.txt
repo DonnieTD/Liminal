@@ -1,0 +1,118 @@
+== Flattening Liminal samples ==
+
+==================================================
+-- SAMPLE: src/samples/0-skeleton.c
+==================================================
+
+-- SOURCE --
+int main() {
+    return 0;
+}
+
+
+-- AST + EXECUTION --
+
+-- AST ARTIFACT --
+node_count=4
+root_id=2
+
+[1] RETURN value=0
+[2] PROGRAM
+[3] FUNCTION name=main body=4
+[4] BLOCK stmts=1
+
+-- EXECUTION ARTIFACT --
+world_count=10
+
+WORLD[1]
+  STEP[0] UNKNOWN
+  STEP[1] ENTER_PROGRAM ast=2
+  STEP[2] ENTER_FUNCTION ast=3
+  STEP[3] ENTER_SCOPE ast=3
+  STEP[4] ENTER_SCOPE ast=4
+  STEP[5] RETURN ast=1
+  STEP[6] EXIT_SCOPE ast=4
+  STEP[7] EXIT_SCOPE ast=3
+  STEP[8] EXIT_FUNCTION ast=3
+  STEP[9] EXIT_PROGRAM ast=2
+
+==================================================
+-- SAMPLE: src/samples/1-variable.c
+==================================================
+
+-- SOURCE --
+int main() {
+    int x;
+    return 0;
+}
+
+
+-- AST + EXECUTION --
+
+-- AST ARTIFACT --
+node_count=5
+root_id=3
+
+[1] UNKNOWN
+[2] RETURN value=0
+[3] PROGRAM
+[4] FUNCTION name=main body=5
+[5] BLOCK stmts=2
+
+-- EXECUTION ARTIFACT --
+world_count=11
+
+WORLD[1]
+  STEP[0] UNKNOWN
+  STEP[1] ENTER_PROGRAM ast=3
+  STEP[2] ENTER_FUNCTION ast=4
+  STEP[3] ENTER_SCOPE ast=4
+  STEP[4] ENTER_SCOPE ast=5
+  STEP[5] UNKNOWN ast=1
+  STEP[6] RETURN ast=2
+  STEP[7] EXIT_SCOPE ast=5
+  STEP[8] EXIT_SCOPE ast=4
+  STEP[9] EXIT_FUNCTION ast=4
+  STEP[10] EXIT_PROGRAM ast=3
+
+==================================================
+-- SAMPLE: src/samples/2-reference-var.c
+==================================================
+
+-- SOURCE --
+int main() {
+    int x;
+    x;
+    return 0;
+}
+
+
+-- AST + EXECUTION --
+
+-- AST ARTIFACT --
+node_count=6
+root_id=4
+
+[1] UNKNOWN
+[2] UNKNOWN
+[3] RETURN value=0
+[4] PROGRAM
+[5] FUNCTION name=main body=6
+[6] BLOCK stmts=3
+
+-- EXECUTION ARTIFACT --
+world_count=12
+
+WORLD[1]
+  STEP[0] UNKNOWN
+  STEP[1] ENTER_PROGRAM ast=4
+  STEP[2] ENTER_FUNCTION ast=5
+  STEP[3] ENTER_SCOPE ast=5
+  STEP[4] ENTER_SCOPE ast=6
+  STEP[5] UNKNOWN ast=1
+  STEP[6] UNKNOWN ast=2
+  STEP[7] RETURN ast=3
+  STEP[8] EXIT_SCOPE ast=6
+  STEP[9] EXIT_SCOPE ast=5
+  STEP[10] EXIT_FUNCTION ast=5
+  STEP[11] EXIT_PROGRAM ast=4

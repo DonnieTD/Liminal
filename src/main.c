@@ -13,6 +13,7 @@
 #include "frontends/c/frontend.h"
 
 #include "analyzer/lifetime.h"
+#include "executor/executor.h"
 
 
 /*
@@ -65,7 +66,27 @@ static int cmd_run(const char *path)
 
     ast_dump(ast);
 
-    /* ---- CLEANUP ---- */
+    /* ---- EXECUTOR: AST -> World timeline ---- */
+
+    Universe *u = executor_build(ast);
+    if (!u) {
+        fprintf(stderr, "failed to build execution artifact\n");
+        ast_program_free(ast);
+        return 1;
+    }
+
+    /* ---- EXECUTION ARTIFACT ---- */
+
+    executor_dump(u);
+
+    /*
+     * NOTE:
+     * - Universe owns all executor memory via arenas
+     * - No destruction yet (process-lifetime ownership is fine)
+     * - Analysis is NOT invoked here
+     */
+
+    /* ---- CLEANUP (frontend only) ---- */
 
     ast_program_free(ast);
 
