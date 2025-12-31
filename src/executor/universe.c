@@ -4,6 +4,8 @@
 #include "executor/scope.h"
 #include "executor/step.h"
 #include "executor/variable.h"
+#include "executor/storage.h"
+#include "common/hashmap.h"
 
 /*
  * Create an empty Universe.
@@ -26,8 +28,10 @@ Universe *universe_create(void)
     arena_init(&u->world_arena, 64 * 1024); /* Worlds */
     arena_init(&u->step_arena, 64 * 1024);  /* Steps */ /* plenty for now */
     arena_init(&u->scope_arena, 64 * 1024); /* Scopes */ 
-
-    u->next_scope_id = 1;
+    arena_init(&u->storage_arena, 64 * 1024); /* Storage */ 
+    
+    u->next_scope_id   = 1;
+    u->next_storage_id = 1;
     
     return u;
 }
@@ -218,36 +222,58 @@ World *universe_exit_scope(Universe *u, void *origin)
 /*
  * Declare a new variable in the current scope.
  *
- * This creates a new Variable, clones the current World,
- * and links history.
+ * This creates a new Storage, clones the current World,
+ * updates the active scope's bindings, and links history.
  */
-World *universe_declare_variable(Universe *u,
-                                 const char *name,
-                                 void *origin)
+World *universe_declare_variable(
+    Universe *u,
+    const char *name,
+    void *origin
+)
 {
-    if (!u || !u->current || !u->current->active_scope) {
+    if (!u || !u->current || !name) {
         return NULL;
     }
 
-    /* Clone world */
-    World *next = world_clone(u, u->current);
+    World *prev = u->current;
+    World *next = world_clone(u, prev);
     if (!next) {
         return NULL;
     }
 
-    next->time = u->current->time + 1;
+    /* Advance time */
+    next->time = prev->time + 1;
 
-    /* Allocate variable */
-    Variable *v = arena_alloc(&u->var_arena, sizeof(Variable));
-    if (!v) {
+    /* Allocate Storage */
+    Storage *st = arena_alloc(&u->storage_arena, sizeof(Storage));
+    if (!st) {
         return NULL;
     }
 
-    v->id       = u->next_var_id++;
-    v->scope_id = next->active_scope->id;
-    v->name     = name;
+    st->id = u->next_storage_id++;
+    st->declared_at = next->time;
 
-    /* Attach step */
+    /* Create new scope frame */
+    Scope *old = prev->active_scope;
+
+    Scope *sc = arena_alloc(&u->scope_arena, sizeof(Scope));
+    if (!sc) {
+        return NULL;
+    }
+
+    sc->id = old->id;
+    sc->parent = old;
+
+    sc->bindings = hashmap_clone(
+        old ? old->bindings : NULL,
+        &u->scope_arena
+    );
+
+    hashmap_put(sc->bindings, name, st);
+
+    next->active_scope = sc;
+
+    /* Emit STEP_DECLARE */
     Step *s = arena_alloc(&u->step_arena, sizeof(Step));
     if (!s) {
         return NULL;
@@ -255,13 +281,84 @@ World *universe_declare_variable(Universe *u,
 
     s->kind   = STEP_DECLARE;
     s->origin = origin;
-    s->info   = v->id;   /* step.info = variable id */
+    s->info   = st->id;
 
     next->step = s;
 
-    /* Link time */
-    next->prev = u->current;
-    u->current->next = next;
+    /* Link timeline */
+    next->prev = prev;
+    prev->next = next;
+
+    u->current = next;
+    u->tail = next;
+    u->current_time = next->time;
+
+    return next;
+}
+
+
+/*
+ * Use (read) a variable by name.
+ *
+ * This resolves the variable in the current scope chain,
+ * clones the current World, and links history.
+ */
+World *universe_use_variable(
+    Universe *u,
+    const char *name,
+    void *origin
+)
+{
+    if (!u || !u->current || !name) {
+        return NULL;
+    }
+
+    World *prev = u->current;
+
+    /* Resolve name in current scope chain */
+    Scope *sc = prev->active_scope;
+    Storage *st = NULL;
+
+    while (sc) {
+        if (sc->bindings) {
+            st = hashmap_get(sc->bindings, name);
+            if (st) {
+                break;
+            }
+        }
+        sc = sc->parent;
+    }
+
+    /* Clone world regardless — we record the attempt */
+    World *next = world_clone(u, prev);
+    if (!next) {
+        return NULL;
+    }
+
+    next->time = prev->time + 1;
+
+    /* Emit STEP_USE */
+    Step *s = arena_alloc(&u->step_arena, sizeof(Step));
+    if (!s) {
+        return NULL;
+    }
+
+    s->kind   = STEP_USE;
+    s->origin = origin;
+
+    if (st) {
+        /* Valid use */
+        s->info = st->id;
+    } else {
+        /* Unresolved use — semantic error */
+        s->info = UINT64_MAX;
+    }
+
+    next->step = s;
+
+    /* Link timeline */
+    next->prev = prev;
+    prev->next = next;
 
     u->current = next;
     u->tail = next;

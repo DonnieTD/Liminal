@@ -4,11 +4,13 @@
 
 This project is a semantic execution and analysis engine for C.
 
-It is not a compiler, not a traditional VM, not an IR pipeline, not a static analyzer, and not a symbolic executor.
+It is **not** a compiler, not a traditional VM, not an IR pipeline, not a static analyzer, and not a symbolic executor.
 
-Instead, it treats a program as a concrete trajectory through semantic state over time. The program is executed once, producing a complete semantic history. All understanding, reasoning, and visualization happens afterward.
+Instead, it treats a program as a **concrete trajectory through semantic state over time**.  
+The program is executed once, producing a complete semantic history. All understanding, reasoning, and visualization happens afterward.
 
-Execution is separated from analysis. Analysis is separated from visualization.
+Execution is separated from analysis.  
+Analysis is separated from visualization.
 
 ---
 
@@ -17,7 +19,7 @@ Execution is separated from analysis. Analysis is separated from visualization.
 Programs are not instruction streams.  
 Programs are trajectories through state.
 
-Execution is modeled as a sequence of state transitions indexed by time. Bugs, undefined behavior, and exploits are treated as pathological transitions in that sequence, not as crashes, warnings, or abstract violations.
+Execution is modeled as a sequence of state transitions indexed by time. Bugs, undefined behavior, and exploits are treated as **pathological transitions in that sequence**, not as crashes, warnings, or abstract violations.
 
 The engine answers the question:
 
@@ -34,7 +36,7 @@ The system is split into four strictly separated stages:
 3. Analyzer
 4. Visualization
 
-Each stage has exactly one responsibility and data only flows forward.
+Data only flows forward.
 
 ---
 
@@ -77,9 +79,7 @@ Execution produces a linear sequence of Worlds:
 
 World0 <-> World1 <-> World2 <-> ... <-> WorldN
 
-This sequence is the primary output of execution.
-
-Execution is deliberately minimal and explicit.
+This sequence is the **primary output** of execution.
 
 ---
 
@@ -91,12 +91,14 @@ Worlds are immutable once created.
 
 A World contains:
 
-- a pointer to the active scope
-- the call stack
-- a pointer to the AST node that produced this state
-- links to the previous and next World
+- monotonic time index
+- pointer to the active scope
+- call stack
+- memory state
+- pointer to the Step that caused this World
+- links to previous and next Worlds
 
-A World does not:
+A World does NOT:
 
 - manage history
 - decide control flow
@@ -123,16 +125,19 @@ The Universe:
 Worlds do not know about the Universe.  
 The Universe knows about Worlds.
 
-This prevents recursive state corruption and keeps time explicit.
+This keeps time explicit and prevents recursive corruption.
 
 ---
 
 ## Semantic Write-Ahead Log
 
-The sequence of Worlds functions as a bidirectional semantic write-ahead log.
+The World sequence acts as a bidirectional semantic write-ahead log.
 
-Forward traversal corresponds to execution.
-Backward traversal corresponds to analysis.
+Forward traversal:
+  execution
+
+Backward traversal:
+  analysis
 
 Unlike a traditional WAL:
 
@@ -140,14 +145,14 @@ Unlike a traditional WAL:
 - Worlds are materialized views of history
 - backward traversal is analytical, not destructive
 
-Execution happens once.
-Understanding can happen arbitrarily many times.
+Execution happens once.  
+Understanding happens arbitrarily many times.
 
 ---
 
 ## Control Flow
 
-Control flow is not stored as state.
+Control flow is not stored as intention.
 
 In a concrete execution:
 
@@ -155,12 +160,10 @@ In a concrete execution:
 - branches resolve immediately
 - loops iterate deterministically
 
-Control flow is treated as history, not intention.
-
 The path taken is recorded implicitly by:
 
-- the ordering of Worlds
-- the AST node pointers stored in each World
+- World ordering
+- AST node pointers stored in Steps
 
 The executor does not manage possible paths.
 
@@ -170,42 +173,51 @@ The executor does not manage possible paths.
 
 Scope is modeled as nested hashmaps arranged in a rose-tree structure.
 
+ASCII model:
+
+Scope 0 (file)
+  |
+  +-- Scope 1 (function)
+        |
+        +-- Scope 2 (block)
+
 Each scope:
 
-- is a hashmap mapping names to storage locations
+- maps names -> storage locations
 - is immutable once created
-- has a parent scope (except the root)
+- points to a parent scope
 
-File scope, function scope, and block scope are all the same mechanism. They differ only in when they are created and destroyed.
+File scope, function scope, and block scope are the same mechanism.
+They differ only in creation and destruction time.
 
-At runtime, execution walks exactly one branch of the scope tree.
+Scope lookup:
 
-Scope resolution is a hashmap lookup:
+- if name exists in current scope: in scope
+- else: lookup parent
+- else: error or undefined behavior
 
-- if the name exists, it is in scope
-- if the name does not exist, that is an error or undefined behavior
-
-No recovery or guessing is performed.
+No recovery or guessing.
 
 ---
 
 ## Lifetime Model
 
-Lifetime is treated as a runtime fact, not a type-system concept.
+Lifetime is a runtime fact, not a type-system concept.
 
 A storage location is:
 
-- born when it is created
-- alive while it exists in the current World
-- dead once it no longer exists
+- born when created
+- alive while reachable in the current World
+- dead once no longer reachable
 
-Lifetime is determined by:
+Lifetime is derived from:
 
 - scope existence
 - call stack frames
 - memory object lifetime
 
-Lifetime is simply the question:
+The only question asked:
+
 Is this storage alive now?
 
 ---
@@ -220,12 +232,12 @@ The analyzer:
 - never re-executes the program
 - never mutates Worlds
 - derives artifacts such as:
+  - scope lifetimes
+  - variable lifetimes
   - memory usage over time
   - call stack evolution
-  - lifetime violations
   - invariant drift
-  - exploit motifs
-  - summaries and metrics
+  - semantic violations
 
 Analysis is pure, replayable, and repeatable.
 
@@ -241,7 +253,7 @@ The visualization layer:
 - renders timelines, graphs, and comparisons
 - provides interactive exploration
 
-It performs no execution, no inference, and no semantic reasoning.
+It performs no execution and no semantic inference.
 
 ---
 
@@ -253,13 +265,13 @@ What did the machine do?
 This engine answers:
 How did semantic reality evolve over time, and where did it break?
 
-By making time and state explicit, bugs and exploits become observable as structural distortions rather than mysterious failures.
+Bugs become structural distortions in time, not mysterious failures.
 
 ---
 
 ## Non-Goals
 
-This project does not aim to:
+This project does NOT aim to:
 
 - replace production compilers
 - be fast
@@ -276,8 +288,59 @@ It optimizes for clarity, observability, and semantic truth.
 - Execute once, analyze forever
 - Prefer observation over inference
 - Prefer explicit state over abstraction
-- If a structure does not help explain semantic drift, it does not belong in the executor
-- Abstraction must be derived from concrete behavior, not imposed upfront
+- Time must always be explicit
+- If a structure does not explain semantic drift, it does not belong
+
+---
+
+## Roadmap / TODO
+
+### DONE
+
+- [x] World structure (immutable semantic state)
+- [x] Universe owning time and history
+- [x] Bidirectional World timeline
+- [x] Step model (semantic causality)
+- [x] Arena allocation for Worlds and Steps
+- [x] Scope model (immutable, parent-linked)
+- [x] Scope enter / exit Steps
+- [x] Time advances per semantic event
+- [x] Trace iterator (forward + backward)
+- [x] Scope lifetime derivation
+- [x] Scope invariant validation
+- [x] Analyzer / executor separation
+- [x] CLI scaffold (run / analyze)
+
+### IN PROGRESS
+
+- [ ] Variable declaration Steps
+- [ ] Variable lifetime analysis
+- [ ] Name binding to storage locations
+- [ ] Scope-to-variable relationship tracking
+
+### NEXT (HELLO WORLD MILESTONE)
+
+- [ ] Minimal frontend AST for:
+      - function
+      - block
+      - variable declaration
+      - return
+- [ ] AST-driven execution (no more dummy AST)
+- [ ] Variable declaration -> storage creation
+- [ ] Variable lifetime artifacts
+- [ ] Analyzer pass producing variable lifetime ranges
+- [ ] Artifact serialization (JSON or similar)
+
+### LATER
+
+- [ ] Memory object modeling
+- [ ] Call stack frames
+- [ ] Function calls / returns
+- [ ] Heap allocation
+- [ ] Use-after-free detection
+- [ ] Invariant drift detection
+- [ ] Visualization frontend
+- [ ] Cross-run comparisons
 
 ---
 

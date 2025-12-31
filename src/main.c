@@ -7,6 +7,8 @@
 #include "executor/scope.h"
 
 #include "analyzer/trace.h"
+#include "analyzer/use.h"
+
 #include "frontends/c/ast.h"
 
 #include "analyzer/lifetime.h"
@@ -48,9 +50,12 @@ static int cmd_run(const char *path)
     (void)path;
 
     /* Dummy AST nodes (identity only) */
-    ASTNode ast_func  = { .kind = AST_FUNCTION,  .id = 1, .line = 1 };
-    ASTNode ast_stmt1 = { .kind = AST_STATEMENT, .id = 2, .line = 2 };
-    ASTNode ast_stmt2 = { .kind = AST_STATEMENT, .id = 3, .line = 3 };
+    ASTNode ast_func   = { .kind = AST_FUNCTION,  .id = 1, .line = 1 };
+    ASTNode ast_decl_x = { .kind = AST_STATEMENT, .id = 2, .line = 2 };
+    ASTNode ast_decl_y = { .kind = AST_STATEMENT, .id = 3, .line = 3 };
+    ASTNode ast_use_x1 = { .kind = AST_STATEMENT, .id = 4, .line = 4 };
+    ASTNode ast_use_y  = { .kind = AST_STATEMENT, .id = 5, .line = 5 };
+    ASTNode ast_use_x2 = { .kind = AST_STATEMENT, .id = 6, .line = 6 };
 
     /* Create Universe */
     Universe *u = universe_create();
@@ -70,12 +75,28 @@ static int cmd_run(const char *path)
 
     /* ---- Simulated program ---- */
 
+    /* Enter function scope */
     universe_enter_scope(u, &ast_func);
-    universe_step(u, &ast_stmt1);
-    universe_step(u, &ast_stmt2);
+
+    /* Declare x */
+    universe_declare_variable(u, "x", &ast_decl_x);
+
+    /* Declare y */
+    universe_declare_variable(u, "y", &ast_decl_y);
+
+    /* Valid use of x */
+    universe_use_variable(u, "x", &ast_use_x1);
+
+    /* Valid use of y */
+    universe_use_variable(u, "y", &ast_use_y);
+
+    /* Exit function scope */
     universe_exit_scope(u, &ast_func);
 
-    /* ---- Print raw timeline ---- */
+    /* Use-after-scope (x) */
+    universe_use_variable(u, "x", &ast_use_x2);
+
+    /* ---- RAW TIMELINE ---- */
 
     printf("\n-- RAW TIMELINE --\n");
     for (World *w = u->head; w; w = w->next) {
@@ -88,7 +109,7 @@ static int cmd_run(const char *path)
         );
     }
 
-    /* ---- Trace forward ---- */
+    /* ---- TRACE FORWARD ---- */
 
     printf("\n-- TRACE FORWARD --\n");
     Trace t = trace_begin(u->head);
@@ -103,7 +124,7 @@ static int cmd_run(const char *path)
         trace_next(&t);
     }
 
-    /* ---- Trace backward ---- */
+    /* ---- TRACE BACKWARD ---- */
 
     printf("\n-- TRACE BACKWARD --\n");
     t = trace_end(u->tail);
@@ -118,23 +139,62 @@ static int cmd_run(const char *path)
         trace_prev(&t);
     }
 
-    printf("\n-- SCOPE LIFETIMES --\n");
-    ScopeLifetime lifetimes[64];
-    size_t count = lifetime_collect_scopes(u->head, lifetimes, 64);
+    /* ---- SCOPE LIFETIMES ---- */
 
-    for (size_t i = 0; i < count; i++) {
+    printf("\n-- SCOPE LIFETIMES --\n");
+
+    ScopeLifetime lifetimes[64];
+    size_t scope_count =
+        lifetime_collect_scopes(u->head, lifetimes, 64);
+
+    for (size_t i = 0; i < scope_count; i++) {
         const ScopeLifetime *lt = &lifetimes[i];
-        
+
         if (lt->exit_time == UINT64_MAX) {
-            printf("scope=%llu enter=%llu exit=OPEN\n",
+            printf(
+                "scope=%llu enter=%llu exit=OPEN\n",
                 (unsigned long long)lt->scope_id,
-                (unsigned long long)lt->enter_time);
+                (unsigned long long)lt->enter_time
+            );
         } else {
-            printf("scope=%llu enter=%llu exit=%llu\n",
+            printf(
+                "scope=%llu enter=%llu exit=%llu\n",
                 (unsigned long long)lt->scope_id,
                 (unsigned long long)lt->enter_time,
-                (unsigned long long)lt->exit_time);
+                (unsigned long long)lt->exit_time
+            );
         }
+    }
+
+    /* ---- STEP_USE VALIDATION ---- */
+
+    printf("\n-- USE VALIDATION --\n");
+
+    UseReport uses[64];
+    size_t use_count =
+        analyze_step_use(
+            u->head,
+            lifetimes,
+            scope_count,
+            uses,
+            64
+        );
+
+    for (size_t i = 0; i < use_count; i++) {
+        const UseReport *r = &uses[i];
+
+        const char *label =
+            (r->kind == USE_OK) ? "OK" :
+            (r->kind == USE_BEFORE_DECLARE) ? "use-before-declare" :
+            "use-after-scope";
+
+        printf(
+            "t=%llu scope=%llu storage=%s => %s\n",
+            (unsigned long long)r->time,
+            (unsigned long long)r->scope_id,
+            (r->storage_id == UINT64_MAX) ? "UNRESOLVED" : "RESOLVED",
+            label
+        );
     }
 
     return 0;
