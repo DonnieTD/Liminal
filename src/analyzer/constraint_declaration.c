@@ -1,5 +1,6 @@
 //@source src/analyzer/constraint_declaration.c
 #include "analyzer/constraint.h"
+#include "analyzer/source_anchor.h"
 #include "analyzer/trace.h"
 #include "executor/world.h"
 #include "executor/step.h"
@@ -12,6 +13,25 @@
 static int scope_has_name(Scope *s, const char *name)
 {
     return s && s->bindings && hashmap_get(s->bindings, name);
+}
+
+static SourceAnchor *anchor_from_origin(void *origin)
+{
+    if (!origin)
+        return NULL;
+
+    ASTNode *n = (ASTNode *)origin;
+
+    SourceAnchor *a = calloc(1, sizeof(SourceAnchor));
+    if (!a)
+        return NULL;
+
+    a->file    = NULL;          /* filled later (Stage 5.2) */
+    a->node_id = n->id;
+    a->line    = n->at.line;
+    a->col     = n->at.col;
+
+    return a;
 }
 
 ConstraintArtifact analyze_declaration_constraints(struct World *head)
@@ -57,7 +77,8 @@ ConstraintArtifact analyze_declaration_constraints(struct World *head)
                 .kind       = CONSTRAINT_REDECLARATION,
                 .time       = w->time,
                 .scope_id   = cur->id,
-                .storage_id = s->info
+                .storage_id = s->info,
+                .anchor     = anchor_from_origin(s->origin)
             };
             goto next;
         }
@@ -69,7 +90,8 @@ ConstraintArtifact analyze_declaration_constraints(struct World *head)
                     .kind       = CONSTRAINT_SHADOWING,
                     .time       = w->time,
                     .scope_id   = cur->id,
-                    .storage_id = s->info
+                    .storage_id = s->info,
+                    .anchor     = anchor_from_origin(s->origin)
                 };
                 break;
             }

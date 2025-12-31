@@ -10,7 +10,6 @@ BIN     := liminal
 # ------------------------------------------------------------
 
 SRC := $(filter-out src/samples/%,$(shell find src -name '*.c'))
-
 OBJ := $(SRC:src/%.c=$(BUILD)/%.o)
 DEP := $(OBJ:.o=.d)
 
@@ -32,130 +31,95 @@ clean:
 
 -include $(DEP)
 
+# ------------------------------------------------------------
+# Test artifacts layout
+# ------------------------------------------------------------
 
-# -------------------------------------------------------------
-# Flattened single-file build
-# -------------------------------------------------------------
-FLATTEN := artifacts/liminal_flat.c
+TEST_ROOT := test
+TEST_RUN  := $(shell date +"%d-%m-%Y-%H-%M-%S")
+TEST_DIR  := $(TEST_ROOT)/$(TEST_RUN)
 
-flatten: $(FLATTEN)
+# ------------------------------------------------------------
+# Samples
+# ------------------------------------------------------------
 
-$(FLATTEN):
-	@echo "/* ========================================================= */" >  $@
-	@echo "/*  LIMINAL — SINGLE FILE FLATTENED BUILD                    */" >> $@
-	@echo "/*  Generated: $$(date)                                      */" >> $@
-	@echo "/* ========================================================= */\n" >> $@
-
-	@echo "/* --------- Headers ---------------------------------------- */\n" >> $@
-	@find src -name '*.h' | sort | while read f; do \
-		echo "\n/* === $$f ============================================ */" >> $@; \
-		cat $$f >> $@; \
-	done
-
-	@echo "\n/* --------- Sources ---------------------------------------- */\n" >> $@
-
-	@for f in $(SRC); do \
-		echo "\n/* === $$f ============================================ */" >> $@; \
-		cat $$f >> $@; \
-	done
-
-	@echo "\n/* ======================= END ============================== */" >> $@
-
-
-# -------------------------------------------------------------
-# Test target samples
-# -------------------------------------------------------------
 SAMPLES := $(sort $(wildcard src/samples/[0-9]*.c))
 
 .PHONY: run-samples
 
 run-samples: liminal
+	@mkdir -p $(TEST_DIR)
 	@echo "== Running Liminal samples =="
+	@echo "Artifacts -> $(TEST_DIR)"
 	@set -e; \
 	for f in $(SAMPLES); do \
+		name=$$(basename $$f .c); \
+		outdir="$(TEST_DIR)/$$name"; \
 		echo ""; \
 		echo ">>> $$f"; \
-		./liminal run $$f; \
+		mkdir -p $$outdir; \
+		./liminal run $$f \
+			--emit-artifacts \
+			--artifact-dir $$outdir \
+			--run-id analysis; \
 	done
 
 .PHONY: test
 
 test: clean liminal run-samples
 
+# ------------------------------------------------------------
+# Flattened single-file build
+# ------------------------------------------------------------
 
-# -------------------------------------------------------------
-# Flatten Samples
-# -------------------------------------------------------------
-SAMPLES      := $(sort $(wildcard src/samples/[0-9]*.c))
-FLAT_SAMPLES := artifacts/samples.flat.txt
+FLATTEN := artifacts/liminal_flat.c
 
+flatten: $(FLATTEN)
 
-.PHONY: flatten-samples
-
-flatten-samples: liminal
+$(FLATTEN):
 	@mkdir -p artifacts
-	@echo "== Flattening Liminal samples ==" > $(FLAT_SAMPLES)
-	@set -e; \
-	for f in $(SAMPLES); do \
-		echo "" >> $(FLAT_SAMPLES); \
-		echo "==================================================" >> $(FLAT_SAMPLES); \
-		echo "-- SAMPLE: $$f" >> $(FLAT_SAMPLES); \
-		echo "==================================================" >> $(FLAT_SAMPLES); \
-		echo "" >> $(FLAT_SAMPLES); \
-		echo "-- SOURCE --" >> $(FLAT_SAMPLES); \
-		cat $$f >> $(FLAT_SAMPLES); \
-		echo "" >> $(FLAT_SAMPLES); \
-		echo "" >> $(FLAT_SAMPLES); \
-		echo "-- AST + EXECUTION --" >> $(FLAT_SAMPLES); \
-		./liminal run $$f >> $(FLAT_SAMPLES); \
+	@echo "/* ========================================================= */" >  $@
+	@echo "/*  LIMINAL — SINGLE FILE FLATTENED BUILD                    */" >> $@
+	@echo "/*  Generated: $$(date)                                      */" >> $@
+	@echo "/* ========================================================= */" >> $@
+	@find src -name '*.h' | sort | while read f; do \
+		echo "\n/* === $$f ============================================ */" >> $@; \
+		cat $$f >> $@; \
 	done
-	@echo ""
-	@echo "Flattened samples written to $(FLAT_SAMPLES)"
-
+	@find src -name '*.c' | grep -v src/samples | sort | while read f; do \
+		echo "\n/* === $$f ============================================ */" >> $@; \
+		cat $$f >> $@; \
+	done
 
 # -------------------------------------------------------------
-# Minified flattened single-file build (LLM-friendly)
+# Minified flattened single-file build (repo-correct)
 # -------------------------------------------------------------
+
 FLATTEN_MIN := artifacts/liminal_flat.min.c
+
+.PHONY: flatten-min
 
 flatten-min: $(FLATTEN_MIN)
 
 $(FLATTEN_MIN):
 	@mkdir -p artifacts
-	@echo "/* LIMINAL_FLAT_MIN $(shell date -u +%Y%m%dT%H%M%SZ) */" > $@
+	@echo "/* LIMINAL_FLAT_MIN $$(date -u +%Y%m%dT%H%M%SZ) */" > $@
 
-	@find src -name '*.h' | sort | while read f; do \
-		echo "//@header $$f" >> $@; \
-		sed '/^[[:space:]]*$$/d' $$f >> $@; \
+	@echo "/* -------- HEADERS -------- */" >> $@
+	@for dir in common executor analyzer consumers frontends; do \
+		find src/$$dir -name '*.h' -type f | sort | while read f; do \
+			echo "//@header $$f" >> $@; \
+			sed '/^[[:space:]]*$$/d' $$f >> $@; \
+		done; \
 	done
 
-	@find src -name '*.c' | grep -v 'src/samples/' | sort | while read f; do \
-		echo "//@source $$f" >> $@; \
-		sed '/^[[:space:]]*$$/d' $$f >> $@; \
+	@echo "/* -------- SOURCES -------- */" >> $@
+	@for dir in common executor analyzer consumers frontends; do \
+		find src/$$dir -name '*.c' -type f | sort | while read f; do \
+			echo "//@source $$f" >> $@; \
+			sed '/^[[:space:]]*$$/d' $$f >> $@; \
+		done; \
 	done
 
-
-# -------------------------------------------------------------
-# Minified flattened samples (LLM-friendly)
-# -------------------------------------------------------------
-FLAT_SAMPLES_MIN := artifacts/samples.flat.min.txt
-
-.PHONY: flatten-samples-min
-
-flatten-samples-min: liminal
-	@mkdir -p artifacts
-	@echo "@liminal_samples $(shell date -u +%Y%m%dT%H%M%SZ)" > $(FLAT_SAMPLES_MIN)
-	@set -e; \
-	for f in $(SAMPLES); do \
-		echo "@sample $$f" >> $(FLAT_SAMPLES_MIN); \
-		echo "@src" >> $(FLAT_SAMPLES_MIN); \
-		sed '/^[[:space:]]*$$/d' $$f | tr '\n' ' ' >> $(FLAT_SAMPLES_MIN); \
-		echo "" >> $(FLAT_SAMPLES_MIN); \
-		echo "@ast" >> $(FLAT_SAMPLES_MIN); \
-		./liminal run $$f | sed -n '/-- AST ARTIFACT --/,$$p' \
-			| sed '/-- EXECUTION ARTIFACT --/,$$d' \
-			| sed '/^[[:space:]]*$$/d' >> $(FLAT_SAMPLES_MIN); \
-		echo "@exec" >> $(FLAT_SAMPLES_MIN); \
-		./liminal run $$f | sed -n '/-- EXECUTION ARTIFACT --/,$$p' \
-			| sed '/^[[:space:]]*$$/d' >> $(FLAT_SAMPLES_MIN); \
-	done
+	@echo "//@source src/main.c" >> $@
+	@sed '/^[[:space:]]*$$/d' src/main.c >> $@

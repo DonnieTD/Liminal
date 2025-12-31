@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* Stage 5.1 forward declaration */
+struct SourceAnchor;
+
 /*
  * ConstraintKind
  *
@@ -26,6 +29,8 @@ typedef struct Constraint {
     uint64_t time;
     uint64_t scope_id;
     uint64_t storage_id;
+
+    struct SourceAnchor *anchor;  /* may be NULL */
 } Constraint;
 
 /*

@@ -1,351 +1,5 @@
-/* LIMINAL_FLAT_MIN 20251231T173804Z */
-//@header src/analyzer/constraint.h
-#pragma once
-#include <stdint.h>
-#include <stddef.h>
-/*
- * ConstraintKind
- *
- * Enumerates semantic invariants derived from execution.
- *
- * Constraints are NOT diagnostics.
- * They express facts about semantic reality.
- */
-typedef enum ConstraintKind {
-    CONSTRAINT_USE_REQUIRES_DECLARATION,
-    CONSTRAINT_REDECLARATION,
-    CONSTRAINT_SHADOWING
-} ConstraintKind;
-/*
- * Constraint
- *
- * A single semantic invariant statement.
- */
-typedef struct Constraint {
-    ConstraintKind kind;
-    uint64_t time;
-    uint64_t scope_id;
-    uint64_t storage_id;
-} Constraint;
-/*
- * ConstraintArtifact
- *
- * Output of the constraint engine.
- */
-typedef struct ConstraintArtifact {
-    Constraint *items;
-    size_t count;
-} ConstraintArtifact;
-//@header src/analyzer/constraint_declaration.h
-//@header src/analyzer/constraint_declaration.h
-#ifndef LIMINAL_CONSTRAINT_DECLARATION_H
-#define LIMINAL_CONSTRAINT_DECLARATION_H
-#include "analyzer/constraint.h"
-struct World;
-/*
- * Declaration-related constraint extraction.
- *
- * Emits:
- *   - CONSTRAINT_REDECLARATION
- *   - CONSTRAINT_SHADOWING
- */
-ConstraintArtifact analyze_declaration_constraints(struct World *head);
-#endif /* LIMINAL_CONSTRAINT_DECLARATION_H */
-//@header src/analyzer/constraint_diagnostic.h
-#pragma once
-#include <stddef.h>
-#include "analyzer/constraint.h"
-#include "analyzer/diagnostic.h"
-/*
- * Project constraints into diagnostics.
- *
- * Returns number of diagnostics written.
- */
-size_t constraint_to_diagnostic(
-    const ConstraintArtifact *constraints,
-    Diagnostic *out,
-    size_t cap
-);
-//@header src/analyzer/constraint_engine.h
-#ifndef LIMINAL_CONSTRAINT_ENGINE_H
-#define LIMINAL_CONSTRAINT_ENGINE_H
-#include "analyzer/constraint.h"
-#include "executor/world.h"
-/*
- * Constraint engine entry point.
- *
- * Consumes a World timeline and produces semantic constraints.
- */
-ConstraintArtifact analyze_constraints(struct World *head);
-#endif /* LIMINAL_CONSTRAINT_ENGINE_H */
-//@header src/analyzer/constraint_variable.h
-#ifndef LIMINAL_CONSTRAINT_VARIABLE_H
-#define LIMINAL_CONSTRAINT_VARIABLE_H
-#include "analyzer/constraint.h"
-#include "executor/world.h"
-/*
- * Variable-related constraint extraction.
- *
- * Emits:
- *   - CONSTRAINT_REDECLARATION
- */
-ConstraintArtifact analyze_variable_constraints(struct World *head);
-#endif
-//@header src/analyzer/diagnostic.h
-#pragma once
-#include <stdint.h>
-#include <stddef.h>
-struct ASTNode;
-typedef enum DiagnosticKind {
-    DIAG_REDECLARATION,
-    DIAG_SHADOWING,
-    DIAG_USE_BEFORE_DECLARE,
-    DIAG_USE_AFTER_SCOPE_EXIT,
-} DiagnosticKind;
-typedef struct Diagnostic {
-    DiagnosticKind kind;
-    uint64_t time;
-    uint64_t scope_id;
-    uint64_t previous_scope_id;
-    const char *name;
-    const struct ASTNode *origin;
-    const struct ASTNode *previous_origin;
-} Diagnostic;
-typedef struct DiagnosticArtifact {
-    Diagnostic *items;
-    size_t count;
-} DiagnosticArtifact;
-struct World;
-DiagnosticArtifact analyze_diagnostics(struct World *head);
-void diagnostic_dump(const DiagnosticArtifact *a);
-//@header src/analyzer/lifetime.h
-#ifndef LIMINAL_LIFETIME_H
-#define LIMINAL_LIFETIME_H
-#include <stdint.h>
-#include <stddef.h>
-struct World;
-typedef struct ScopeLifetime {
-    uint64_t scope_id;
-    uint64_t enter_time;
-    uint64_t exit_time;   /* UINT64_MAX means "still open" */
-    void    *enter_origin;
-    void    *exit_origin;
-} ScopeLifetime;
-/*
- * Collect scope lifetimes into `out`.
- *
- * Returns number of lifetimes written (<= cap).
- * If cap is too small, it truncates (for now).
- */
-size_t lifetime_collect_scopes(struct World *head,
-                               ScopeLifetime *out,
-                               size_t cap);
-#endif /* LIMINAL_LIFETIME_H */
-//@header src/analyzer/trace.h
-#ifndef LIMINAL_TRACE_H
-#define LIMINAL_TRACE_H
-#include <stdint.h>
-struct World;
-/*
- * Trace
- *
- * A read-only cursor over a sequence of Worlds.
- *
- * The Trace never mutates Worlds.
- * It may move forward and backward in time.
- */
-typedef struct Trace {
-    struct World *current;
-} Trace;
-/* Construction */
-Trace trace_begin(struct World *head);
-Trace trace_end(struct World *tail);
-/* Navigation */
-struct World *trace_current(Trace *t);
-struct World *trace_next(Trace *t);
-struct World *trace_prev(Trace *t);
-/* Utility */
-int trace_is_valid(const Trace *t);
-#endif /* LIMINAL_TRACE_H */
-//@header src/analyzer/use.h
-#ifndef LIMINAL_ANALYZER_USE_H
-#define LIMINAL_ANALYZER_USE_H
-#include <stdint.h>
-#include <stddef.h>
-struct World;
-struct ScopeLifetime;
-/*
- * Classification of a variable use
- */
-typedef enum UseKind {
-    USE_OK = 0,
-    USE_BEFORE_DECLARE,
-    USE_AFTER_SCOPE
-} UseKind;
-/*
- * Result of analyzing a STEP_USE
- */
-typedef struct UseReport {
-    uint64_t time;
-    uint64_t scope_id;
-    uint64_t storage_id; /* UINT64_MAX if unresolved */
-    UseKind kind;
-} UseReport;
-/*
- * Analyze STEP_USE events in a World timeline.
- *
- * - worlds: head of world list
- * - lifetimes: collected scope lifetimes
- * - lifetime_count: number of lifetimes
- * - out: output array
- * - cap: capacity of output array
- *
- * Returns number of reports written.
- */
-size_t analyze_step_use(
-    const struct World *worlds,
-    const struct ScopeLifetime *lifetimes,
-    size_t lifetime_count,
-    UseReport *out,
-    size_t cap
-);
-#endif /* LIMINAL_ANALYZER_USE_H */
-//@header src/analyzer/use_report.h
-#ifndef LIMINAL_USE_REPORT_H
-#define LIMINAL_USE_REPORT_H
-#include <stdint.h>
-typedef enum UseKind {
-    USE_OK = 0,
-    USE_BEFORE_DECLARE,
-    USE_AFTER_SCOPE
-} UseKind;
-typedef struct UseReport {
-    uint64_t time;
-    uint64_t storage_id;   /* UINT64_MAX if unresolved */
-    uint64_t scope_id;
-    UseKind  kind;
-} UseReport;
-#endif
-//@header src/analyzer/validate.h
-#ifndef LIMINAL_VALIDATE_H
-#define LIMINAL_VALIDATE_H
-#include <stddef.h>
-#include <stdint.h>
-/*
- * This file defines *structural validators* over the World timeline.
- *
- * Validators:
- *  - NEVER mutate Worlds
- *  - NEVER execute semantics
- *  - ONLY read derived structure from the trace
- *
- * Their job is to answer questions like:
- *   "Does this execution make sense?"
- *   "Is the structure well-formed?"
- *
- * This is where Liminal first learns to say:
- *   "This program is wrong."
- */
-struct World;
-/*
- * ScopeViolationKind
- *
- * Enumerates the kinds of structural errors we can detect
- * in scope behavior purely from the trace.
- *
- * These are NOT runtime errors.
- * These are *semantic shape violations*.
- */
-typedef enum ScopeViolationKind {
-    SCOPE_OK = 0,
-    /*
-     * An EXIT_SCOPE occurred when no scope was active.
-     * This indicates:
-     *  - frontend bug
-     *  - executor bug
-     *  - malformed input
-     */
-    SCOPE_EXIT_WITHOUT_ENTER,
-    /*
-     * A scope was entered but never exited.
-     * This is detected at end-of-trace.
-     */
-    SCOPE_ENTER_WITHOUT_EXIT,
-    /*
-     * Scopes must be exited in LIFO order.
-     * If scope A enters, then scope B enters,
-     * scope B MUST exit before scope A.
-     */
-    SCOPE_NON_LIFO_EXIT,
-    /*
-     * The active_scope pointer stored in the World
-     * does not match what the step-derived scope stack
-     * says it *should* be.
-     *
-     * This detects:
-     *  - executor bookkeeping bugs
-     *  - illegal state transitions
-     */
-    SCOPE_ACTIVE_MISMATCH
-} ScopeViolationKind;
-/*
- * ScopeViolation
- *
- * A single detected violation of scope invariants.
- *
- * This is intentionally minimal:
- *  - what went wrong
- *  - when it happened
- *  - which scope was involved
- */
-typedef struct ScopeViolation {
-    ScopeViolationKind kind;
-    /* World time at which violation was observed */
-    uint64_t time;
-    /* Scope id involved in the violation */
-    uint64_t scope_id;
-} ScopeViolation;
-/*
- * validate_scope_invariants
- *
- * Walks the World timeline from beginning to end
- * and validates that scope ENTER / EXIT events form
- * a well-structured, properly nested tree.
- *
- * Inputs:
- *   - head : first World in timeline
- *   - out  : caller-provided array for violations
- *   - cap  : capacity of `out`
- *
- * Output:
- *   - returns number of violations written
- *
- * Notes:
- *   - Validation is PURE.
- *   - No allocation.
- *   - No mutation.
- *   - If cap is exceeded, results are truncated.
- */
-size_t validate_scope_invariants(struct World *head,
-                                 ScopeViolation *out,
-                                 size_t cap);
-#endif /* LIMINAL_VALIDATE_H */
-//@header src/analyzer/variable_lifetime.h
-#ifndef LIMINAL_VARIABLE_LIFETIME_H
-#define LIMINAL_VARIABLE_LIFETIME_H
-#include <stdint.h>
-#include <stddef.h>
-struct World;
-typedef struct VariableLifetime {
-    uint64_t var_id;
-    uint64_t scope_id;
-    uint64_t declare_time;
-    uint64_t end_time;   /* scope exit */
-} VariableLifetime;
-size_t lifetime_collect_variables(struct World *head,
-                                  VariableLifetime *out,
-                                  size_t cap);
-#endif
+/* LIMINAL_FLAT_MIN 20251231T192702Z */
+/* -------- HEADERS -------- */
 //@header src/common/arena.h
 #ifndef LIMINAL_ARENA_H
 #define LIMINAL_ARENA_H
@@ -379,6 +33,16 @@ int read_entire_file(
     size_t     *out_len
 );
 #endif /* LIMINAL_FILE_H */
+//@header src/common/fs.h
+#ifndef LIMINAL_FS_H
+#define LIMINAL_FS_H
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h>
+bool fs_mkdir_if_missing(const char *path);
+bool fs_write_file(const char *path, const char *data, size_t len);
+FILE *fs_open_file(const char *path);
+#endif
 //@header src/common/hashmap.h
 #ifndef LIMINAL_HASHMAP_H
 #define LIMINAL_HASHMAP_H
@@ -678,6 +342,516 @@ World *world_create_initial(struct Universe *u);
 /* Cloning */
 World *world_clone(struct Universe *u, const World *src);
 #endif /* LIMINAL_WORLD_H */
+//@header src/analyzer/artifact_emit.h
+#ifndef LIMINAL_ARTIFACT_EMIT_H
+#define LIMINAL_ARTIFACT_EMIT_H
+#include "analyzer/diagnostic.h"
+#include "stdbool.h"
+typedef struct {
+    const char *root;
+    const char *run_id;
+    const char *input_path;
+    unsigned long started_at;
+} ArtifactContext;
+bool artifact_emit_all(
+    const ArtifactContext *ctx,
+    const DiagnosticArtifact *diagnostics
+);
+#endif
+//@header src/analyzer/constraint.h
+#pragma once
+#include <stdint.h>
+#include <stddef.h>
+/* Stage 5.1 forward declaration */
+struct SourceAnchor;
+/*
+ * ConstraintKind
+ *
+ * Enumerates semantic invariants derived from execution.
+ *
+ * Constraints are NOT diagnostics.
+ * They express facts about semantic reality.
+ */
+typedef enum ConstraintKind {
+    CONSTRAINT_USE_REQUIRES_DECLARATION,
+    CONSTRAINT_REDECLARATION,
+    CONSTRAINT_SHADOWING
+} ConstraintKind;
+/*
+ * Constraint
+ *
+ * A single semantic invariant statement.
+ */
+typedef struct Constraint {
+    ConstraintKind kind;
+    uint64_t time;
+    uint64_t scope_id;
+    uint64_t storage_id;
+    struct SourceAnchor *anchor;  /* may be NULL */
+} Constraint;
+/*
+ * ConstraintArtifact
+ *
+ * Output of the constraint engine.
+ */
+typedef struct ConstraintArtifact {
+    Constraint *items;
+    size_t count;
+} ConstraintArtifact;
+//@header src/analyzer/constraint_declaration.h
+//@header src/analyzer/constraint_declaration.h
+#ifndef LIMINAL_CONSTRAINT_DECLARATION_H
+#define LIMINAL_CONSTRAINT_DECLARATION_H
+#include "analyzer/constraint.h"
+struct World;
+/*
+ * Declaration-related constraint extraction.
+ *
+ * Emits:
+ *   - CONSTRAINT_REDECLARATION
+ *   - CONSTRAINT_SHADOWING
+ */
+ConstraintArtifact analyze_declaration_constraints(struct World *head);
+#endif /* LIMINAL_CONSTRAINT_DECLARATION_H */
+//@header src/analyzer/constraint_diagnostic.h
+#pragma once
+#include <stddef.h>
+#include "analyzer/constraint.h"
+#include "analyzer/diagnostic.h"
+/*
+ * Project constraints into diagnostics.
+ *
+ * Returns number of diagnostics written.
+ */
+size_t constraint_to_diagnostic(
+    const ConstraintArtifact *constraints,
+    Diagnostic *out,
+    size_t cap
+);
+//@header src/analyzer/constraint_engine.h
+#ifndef LIMINAL_CONSTRAINT_ENGINE_H
+#define LIMINAL_CONSTRAINT_ENGINE_H
+#include "analyzer/constraint.h"
+#include "executor/world.h"
+/*
+ * Constraint engine entry point.
+ *
+ * Consumes a World timeline and produces semantic constraints.
+ */
+ConstraintArtifact analyze_constraints(struct World *head);
+#endif /* LIMINAL_CONSTRAINT_ENGINE_H */
+//@header src/analyzer/constraint_variable.h
+#ifndef LIMINAL_CONSTRAINT_VARIABLE_H
+#define LIMINAL_CONSTRAINT_VARIABLE_H
+#include "analyzer/constraint.h"
+#include "executor/world.h"
+/*
+ * Variable-related constraint extraction.
+ *
+ * Emits:
+ *   - CONSTRAINT_REDECLARATION
+ */
+ConstraintArtifact analyze_variable_constraints(struct World *head);
+#endif
+//@header src/analyzer/diagnostic.h
+#pragma once
+#include <stdint.h>
+#include <stddef.h>
+#include "analyzer/source_anchor.h"
+#include "analyzer/diagnostic_id.h"
+struct ASTNode;
+typedef enum DiagnosticKind {
+    DIAG_REDECLARATION,
+    DIAG_SHADOWING,
+    DIAG_USE_BEFORE_DECLARE,
+    DIAG_USE_AFTER_SCOPE_EXIT,
+} DiagnosticKind;
+typedef struct Diagnostic {
+    DiagnosticId id;
+    DiagnosticKind kind;
+    uint64_t time;
+    uint64_t scope_id;
+    uint64_t prev_scope;
+    struct SourceAnchor *anchor;
+} Diagnostic;
+typedef struct DiagnosticArtifact {
+    Diagnostic *items;
+    size_t count;
+} DiagnosticArtifact;
+struct World;
+DiagnosticArtifact analyze_diagnostics(struct World *head);
+void diagnostic_dump(const DiagnosticArtifact *a);
+const char *diagnostic_kind_name(DiagnosticKind k);
+//@header src/analyzer/diagnostic_id.h
+#ifndef LIMINAL_DIAGNOSTIC_ID_H
+#define LIMINAL_DIAGNOSTIC_ID_H
+#include <stdint.h>
+#include "analyzer/constraint.h"
+/*
+ * DiagnosticId
+ *
+ * Stable semantic identity for a diagnostic.
+ */
+typedef struct DiagnosticId {
+    uint64_t value;
+} DiagnosticId;
+/*
+ * Derive a stable diagnostic identity from a constraint.
+ *
+ * PURE:
+ *  - no allocation
+ *  - no globals
+ *  - deterministic
+ */
+DiagnosticId diagnostic_id_from_constraint(const Constraint *c);
+#endif /* LIMINAL_DIAGNOSTIC_ID_H */
+//@header src/analyzer/diagnostic_project.h
+#ifndef LIMINAL_DIAGNOSTIC_PROJECT_H
+#define LIMINAL_DIAGNOSTIC_PROJECT_H
+#include "analyzer/diagnostic.h"
+#include <stdio.h>
+void diagnostic_project_ndjson(
+    const DiagnosticArtifact *a,
+    FILE *out
+);
+#endif
+//@header src/analyzer/diagnostic_serialize.h
+#ifndef LIMINAL_DIAGNOSTIC_SERIALIZE_H
+#define LIMINAL_DIAGNOSTIC_SERIALIZE_H
+#include <stdio.h>
+#include "analyzer/diagnostic.h"
+/*
+ * Serialize diagnostics to a stream.
+ *
+ * Format: newline-delimited JSON (one diagnostic per line)
+ *
+ * This function:
+ *  - does NOT allocate
+ *  - does NOT infer
+ *  - does NOT format for humans
+ */
+void diagnostic_serialize_ndjson(
+    const DiagnosticArtifact *a,
+    FILE *out
+);
+/*
+ * Deserialize a single diagnostic from an NDJSON stream.
+ *
+ * Returns:
+ *   1 on success
+ *   0 on EOF or parse failure
+ *
+ * Does NOT allocate.
+ */
+int diagnostic_deserialize_line(
+    FILE *in,
+    Diagnostic *out
+);
+#endif /* LIMINAL_DIAGNOSTIC_SERIALIZE_H */
+//@header src/analyzer/lifetime.h
+#ifndef LIMINAL_LIFETIME_H
+#define LIMINAL_LIFETIME_H
+#include <stdint.h>
+#include <stddef.h>
+struct World;
+typedef struct ScopeLifetime {
+    uint64_t scope_id;
+    uint64_t enter_time;
+    uint64_t exit_time;   /* UINT64_MAX means "still open" */
+    void    *enter_origin;
+    void    *exit_origin;
+} ScopeLifetime;
+/*
+ * Collect scope lifetimes into `out`.
+ *
+ * Returns number of lifetimes written (<= cap).
+ * If cap is too small, it truncates (for now).
+ */
+size_t lifetime_collect_scopes(struct World *head,
+                               ScopeLifetime *out,
+                               size_t cap);
+#endif /* LIMINAL_LIFETIME_H */
+//@header src/analyzer/source_anchor.h
+/* LIMINAL_FLAT_MIN 20251231T175500Z */
+//@header src/analyzer/source_anchor.h
+#ifndef LIMINAL_SOURCE_ANCHOR_H
+#define LIMINAL_SOURCE_ANCHOR_H
+#include <stdint.h>
+/*
+ * SourceAnchor
+ *
+ * Stable reference into frontend artifacts.
+ *
+ * This is a POINTER ONLY.
+ * It does not own memory.
+ */
+typedef struct SourceAnchor {
+    const char *file;    /* ASTProgram->source_path (optional for now) */
+    uint32_t    node_id; /* ASTNode->id */
+    uint32_t    line;
+    uint32_t    col;
+} SourceAnchor;
+#endif /* LIMINAL_SOURCE_ANCHOR_H */
+//@header src/analyzer/trace.h
+#ifndef LIMINAL_TRACE_H
+#define LIMINAL_TRACE_H
+#include <stdint.h>
+struct World;
+/*
+ * Trace
+ *
+ * A read-only cursor over a sequence of Worlds.
+ *
+ * The Trace never mutates Worlds.
+ * It may move forward and backward in time.
+ */
+typedef struct Trace {
+    struct World *current;
+} Trace;
+/* Construction */
+Trace trace_begin(struct World *head);
+Trace trace_end(struct World *tail);
+/* Navigation */
+struct World *trace_current(Trace *t);
+struct World *trace_next(Trace *t);
+struct World *trace_prev(Trace *t);
+/* Utility */
+int trace_is_valid(const Trace *t);
+#endif /* LIMINAL_TRACE_H */
+//@header src/analyzer/use.h
+#ifndef LIMINAL_ANALYZER_USE_H
+#define LIMINAL_ANALYZER_USE_H
+#include <stdint.h>
+#include <stddef.h>
+struct World;
+struct ScopeLifetime;
+/*
+ * Classification of a variable use
+ */
+typedef enum UseKind {
+    USE_OK = 0,
+    USE_BEFORE_DECLARE,
+    USE_AFTER_SCOPE
+} UseKind;
+/*
+ * Result of analyzing a STEP_USE
+ */
+typedef struct UseReport {
+    uint64_t time;
+    uint64_t scope_id;
+    uint64_t storage_id; /* UINT64_MAX if unresolved */
+    UseKind kind;
+} UseReport;
+/*
+ * Analyze STEP_USE events in a World timeline.
+ *
+ * - worlds: head of world list
+ * - lifetimes: collected scope lifetimes
+ * - lifetime_count: number of lifetimes
+ * - out: output array
+ * - cap: capacity of output array
+ *
+ * Returns number of reports written.
+ */
+size_t analyze_step_use(
+    const struct World *worlds,
+    const struct ScopeLifetime *lifetimes,
+    size_t lifetime_count,
+    UseReport *out,
+    size_t cap
+);
+#endif /* LIMINAL_ANALYZER_USE_H */
+//@header src/analyzer/use_report.h
+#ifndef LIMINAL_USE_REPORT_H
+#define LIMINAL_USE_REPORT_H
+#include <stdint.h>
+typedef enum UseKind {
+    USE_OK = 0,
+    USE_BEFORE_DECLARE,
+    USE_AFTER_SCOPE
+} UseKind;
+typedef struct UseReport {
+    uint64_t time;
+    uint64_t storage_id;   /* UINT64_MAX if unresolved */
+    uint64_t scope_id;
+    UseKind  kind;
+} UseReport;
+#endif
+//@header src/analyzer/validate.h
+#ifndef LIMINAL_VALIDATE_H
+#define LIMINAL_VALIDATE_H
+#include <stddef.h>
+#include <stdint.h>
+/*
+ * This file defines *structural validators* over the World timeline.
+ *
+ * Validators:
+ *  - NEVER mutate Worlds
+ *  - NEVER execute semantics
+ *  - ONLY read derived structure from the trace
+ *
+ * Their job is to answer questions like:
+ *   "Does this execution make sense?"
+ *   "Is the structure well-formed?"
+ *
+ * This is where Liminal first learns to say:
+ *   "This program is wrong."
+ */
+struct World;
+/*
+ * ScopeViolationKind
+ *
+ * Enumerates the kinds of structural errors we can detect
+ * in scope behavior purely from the trace.
+ *
+ * These are NOT runtime errors.
+ * These are *semantic shape violations*.
+ */
+typedef enum ScopeViolationKind {
+    SCOPE_OK = 0,
+    /*
+     * An EXIT_SCOPE occurred when no scope was active.
+     * This indicates:
+     *  - frontend bug
+     *  - executor bug
+     *  - malformed input
+     */
+    SCOPE_EXIT_WITHOUT_ENTER,
+    /*
+     * A scope was entered but never exited.
+     * This is detected at end-of-trace.
+     */
+    SCOPE_ENTER_WITHOUT_EXIT,
+    /*
+     * Scopes must be exited in LIFO order.
+     * If scope A enters, then scope B enters,
+     * scope B MUST exit before scope A.
+     */
+    SCOPE_NON_LIFO_EXIT,
+    /*
+     * The active_scope pointer stored in the World
+     * does not match what the step-derived scope stack
+     * says it *should* be.
+     *
+     * This detects:
+     *  - executor bookkeeping bugs
+     *  - illegal state transitions
+     */
+    SCOPE_ACTIVE_MISMATCH
+} ScopeViolationKind;
+/*
+ * ScopeViolation
+ *
+ * A single detected violation of scope invariants.
+ *
+ * This is intentionally minimal:
+ *  - what went wrong
+ *  - when it happened
+ *  - which scope was involved
+ */
+typedef struct ScopeViolation {
+    ScopeViolationKind kind;
+    /* World time at which violation was observed */
+    uint64_t time;
+    /* Scope id involved in the violation */
+    uint64_t scope_id;
+} ScopeViolation;
+/*
+ * validate_scope_invariants
+ *
+ * Walks the World timeline from beginning to end
+ * and validates that scope ENTER / EXIT events form
+ * a well-structured, properly nested tree.
+ *
+ * Inputs:
+ *   - head : first World in timeline
+ *   - out  : caller-provided array for violations
+ *   - cap  : capacity of `out`
+ *
+ * Output:
+ *   - returns number of violations written
+ *
+ * Notes:
+ *   - Validation is PURE.
+ *   - No allocation.
+ *   - No mutation.
+ *   - If cap is exceeded, results are truncated.
+ */
+size_t validate_scope_invariants(struct World *head,
+                                 ScopeViolation *out,
+                                 size_t cap);
+#endif /* LIMINAL_VALIDATE_H */
+//@header src/analyzer/variable_lifetime.h
+#ifndef LIMINAL_VARIABLE_LIFETIME_H
+#define LIMINAL_VARIABLE_LIFETIME_H
+#include <stdint.h>
+#include <stddef.h>
+struct World;
+typedef struct VariableLifetime {
+    uint64_t var_id;
+    uint64_t scope_id;
+    uint64_t declare_time;
+    uint64_t end_time;   /* scope exit */
+} VariableLifetime;
+size_t lifetime_collect_variables(struct World *head,
+                                  VariableLifetime *out,
+                                  size_t cap);
+#endif
+//@header src/consumers/diagnostic_diff.h
+#pragma once
+#include "analyzer/diagnostic.h"
+typedef enum {
+    DIFF_ADDED,
+    DIFF_REMOVED,
+    DIFF_UNCHANGED
+} DiagnosticDiffKind;
+typedef struct {
+    DiagnosticDiffKind kind;
+    DiagnosticId id;
+} DiagnosticDiff;
+size_t diagnostic_diff(
+    const DiagnosticArtifact *old_run,
+    const DiagnosticArtifact *new_run,
+    DiagnosticDiff *out,
+    size_t cap
+);
+//@header src/consumers/diagnostic_render.h
+#pragma once
+#include <stdio.h>
+struct DiagnosticArtifact;
+void diagnostic_render_terminal(
+    const struct DiagnosticArtifact *a,
+    FILE *out
+);
+//@header src/consumers/diagnostic_stats.h
+#pragma once
+#include "analyzer/diagnostic.h"
+typedef struct {
+    size_t total;
+    size_t by_kind[DIAG_USE_AFTER_SCOPE_EXIT + 1];
+} DiagnosticStats;
+void diagnostic_stats_compute(
+    const DiagnosticArtifact *a,
+    DiagnosticStats *out);
+void diagnostic_stats_emit_json(
+    const DiagnosticStats *stats,
+    FILE *out
+);//@header src/consumers/diagnostic_validate.h
+#pragma once
+#include "analyzer/diagnostic.h"
+typedef enum {
+    VALIDATION_DUPLICATE_ID,
+    VALIDATION_NON_MONOTONIC_TIME
+} ValidationIssueKind;
+typedef struct {
+    ValidationIssueKind kind;
+    DiagnosticId id;
+} ValidationIssue;
+size_t validate_diagnostics(
+    const DiagnosticArtifact *a,
+    ValidationIssue *out,
+    size_t cap
+);
 //@header src/frontends/c/ast.h
 #ifndef LIMINAL_C_AST_H
 #define LIMINAL_C_AST_H
@@ -821,527 +995,7 @@ int   lexer_accept(Lexer *lx, TokKind k);
  */
 ASTProgram *parse_translation_unit(Lexer *lx);
 #endif /* LIMINAL_C_PARSER_H */
-//@source src/analyzer/constraint_declaration.c
-//@source src/analyzer/constraint_declaration.c
-#include "analyzer/constraint.h"
-#include "analyzer/trace.h"
-#include "executor/world.h"
-#include "executor/step.h"
-#include "executor/scope.h"
-#include "common/hashmap.h"
-#include "frontends/c/ast.h"
-#include <stdlib.h>
-#include <stdint.h>
-static int scope_has_name(Scope *s, const char *name)
-{
-    return s && s->bindings && hashmap_get(s->bindings, name);
-}
-ConstraintArtifact analyze_declaration_constraints(struct World *head)
-{
-    size_t cap = 64;
-    Constraint *buf = calloc(cap, sizeof(Constraint));
-    size_t count = 0;
-    if (!buf || !head) {
-        return (ConstraintArtifact){ .items = NULL, .count = 0 };
-    }
-    Trace t = trace_begin(head);
-    while (trace_is_valid(&t)) {
-        World *w = trace_current(&t);
-        Step  *s = w ? w->step : NULL;
-        if (!s || s->kind != STEP_DECLARE) {
-            trace_next(&t);
-            continue;
-        }
-        World *prev = w->prev;
-        if (!prev || !prev->active_scope)
-            goto next;
-        Scope *cur = prev->active_scope;
-        const char *name = NULL;
-        /* Extract name from AST origin (safe for now) */
-        if (s->origin) {
-            ASTNode *n = (ASTNode *)s->origin;
-            name = n->as.vdecl.name;
-        }
-        if (!name)
-            goto next;
-        /* 1. Redeclaration in same scope */
-        if (scope_has_name(cur, name) && count < cap) {
-            buf[count++] = (Constraint){
-                .kind       = CONSTRAINT_REDECLARATION,
-                .time       = w->time,
-                .scope_id   = cur->id,
-                .storage_id = s->info
-            };
-            goto next;
-        }
-        /* 2. Shadowing parent scope */
-        for (Scope *p = cur->parent; p; p = p->parent) {
-            if (scope_has_name(p, name) && count < cap) {
-                buf[count++] = (Constraint){
-                    .kind       = CONSTRAINT_SHADOWING,
-                    .time       = w->time,
-                    .scope_id   = cur->id,
-                    .storage_id = s->info
-                };
-                break;
-            }
-        }
-    next:
-        trace_next(&t);
-    }
-    return (ConstraintArtifact){
-        .items = buf,
-        .count = count
-    };
-}
-//@source src/analyzer/constraint_diagnostic.c
-// src/analyzer/constraint_diagnostic.c
-#include "analyzer/constraint.h"
-#include "analyzer/diagnostic.h"
-size_t constraint_to_diagnostic(
-    const ConstraintArtifact *constraints,
-    Diagnostic *out,
-    size_t cap
-) {
-    size_t count = 0;
-    for (size_t i = 0; i < constraints->count && count < cap; i++) {
-        const Constraint *c = &constraints->items[i];
-        switch (c->kind) {
-        case CONSTRAINT_REDECLARATION:
-            out[count++] = (Diagnostic){
-                .kind = DIAG_REDECLARATION,
-                .time = c->time,
-                .scope_id = c->scope_id,
-                .previous_scope_id = c->scope_id,
-                .name = NULL,
-                .origin = NULL,
-                .previous_origin = NULL
-            };
-            break;
-        case CONSTRAINT_SHADOWING:
-            out[count++] = (Diagnostic){
-                .kind = DIAG_SHADOWING,
-                .time = c->time,
-                .scope_id = c->scope_id,
-                .previous_scope_id = 0, /* parent scope not surfaced yet */
-                .name = NULL,
-                .origin = NULL,
-                .previous_origin = NULL
-            };
-            break;
-        case CONSTRAINT_USE_REQUIRES_DECLARATION:
-            out[count++] = (Diagnostic){
-                .kind = DIAG_USE_BEFORE_DECLARE,
-                .time = c->time,
-                .scope_id = c->scope_id,
-                .previous_scope_id = 0,
-                .name = NULL,
-                .origin = NULL,
-                .previous_origin = NULL
-            };
-            break;
-        default:
-            /* Unknown / future constraint — ignored by design */
-            break;
-        }
-    }
-    return count;
-}
-//@source src/analyzer/constraint_engine.c
-#include "analyzer/constraint_engine.h"
-#include "analyzer/constraint_variable.h"
-#include "analyzer/constraint_declaration.h"
-#include <stdlib.h>
-#include <string.h>
-ConstraintArtifact analyze_constraints(struct World *head)
-{
-    ConstraintArtifact a = analyze_variable_constraints(head);
-    ConstraintArtifact b = analyze_declaration_constraints(head);
-    /* Temporary merge (Stage 4 discipline) */
-    size_t total = a.count + b.count;
-    Constraint *buf = calloc(total, sizeof(Constraint));
-    if (!buf)
-        return a;
-    memcpy(buf, a.items, a.count * sizeof(Constraint));
-    memcpy(buf + a.count, b.items, b.count * sizeof(Constraint));
-    free(a.items);
-    free(b.items);
-    return (ConstraintArtifact){
-        .items = buf,
-        .count = total
-    };
-}
-//@source src/analyzer/constraint_scope.c
-//@source src/analyzer/constraint_variable.c
-#include "analyzer/constraint_variable.h"
-#include "analyzer/trace.h"
-#include "executor/world.h"
-#include "executor/step.h"
-#include <stdlib.h>
-#include <stdint.h>
-ConstraintArtifact analyze_variable_constraints(struct World *head)
-{
-    /* Empty artifact for degenerate cases */
-    if (!head) {
-        return (ConstraintArtifact){
-            .items = NULL,
-            .count = 0
-        };
-    }
-    /* Fixed-cap temporary buffer (Stage 4.x discipline) */
-    size_t cap = 64;
-    Constraint *buf = calloc(cap, sizeof(Constraint));
-    size_t count = 0;
-    if (!buf) {
-        return (ConstraintArtifact){
-            .items = NULL,
-            .count = 0
-        };
-    }
-    Trace t = trace_begin(head);
-    while (trace_is_valid(&t)) {
-        World *w = trace_current(&t);
-        Step  *s = w ? w->step : NULL;
-        if (s && s->kind == STEP_USE) {
-            /* Unresolved variable use → constraint */
-            if (s->info == UINT64_MAX && count < cap) {
-                buf[count++] = (Constraint){
-                    .kind       = CONSTRAINT_USE_REQUIRES_DECLARATION,
-                    .time       = w->time,
-                    .scope_id   = 0,           /* scope not required yet */
-                    .storage_id = UINT64_MAX
-                };
-            }
-        }
-        trace_next(&t);
-    }
-    return (ConstraintArtifact){
-        .items = buf,
-        .count = count
-    };
-}
-//@source src/analyzer/diagnostic.c
-#include "analyzer/diagnostic.h"
-#include "analyzer/constraint_engine.h"
-#include "analyzer/constraint_diagnostic.h"
-#include <stdlib.h>
-DiagnosticArtifact analyze_diagnostics(struct World *head)
-{
-    Diagnostic *buf = calloc(256, sizeof(Diagnostic));
-    size_t count = 0;
-    /* --- Canonical semantic path --- */
-    ConstraintArtifact constraints = analyze_constraints(head);
-    count += constraint_to_diagnostic(
-        &constraints,
-        buf + count,
-        256 - count
-    );
-    /* --- Temporary legacy path (shadowing only) --- */
-    // count += analyze_shadowing(head, buf + count, 256 - count);
-    return (DiagnosticArtifact){
-        .items = buf,
-        .count = count
-    };
-}
-//@source src/analyzer/diagnostic_dump.c
-#include "analyzer/diagnostic.h"
-#include <stdio.h>
-static const char *kind_str(DiagnosticKind k)
-{
-    switch (k) {
-    case DIAG_REDECLARATION: return "REDECLARATION";
-    case DIAG_SHADOWING: return "SHADOWING";
-    case DIAG_USE_BEFORE_DECLARE: return "USE_BEFORE_DECLARE";
-    case DIAG_USE_AFTER_SCOPE_EXIT: return "USE_AFTER_SCOPE_EXIT";
-    default: return "UNKNOWN";
-    }
-}
-void diagnostic_dump(const DiagnosticArtifact *a)
-{
-    if (a->count == 0)
-        return;
-    printf("\n-- DIAGNOSTICS --\n");
-    for (size_t i = 0; i < a->count; i++) {
-        const Diagnostic *d = &a->items[i];
-        printf(
-            "time=%llu %s name=%s scope=%llu prev_scope=%llu\n",
-            (unsigned long long)d->time,
-            kind_str(d->kind),
-            d->name ? d->name : "?",
-            (unsigned long long)d->scope_id,
-            (unsigned long long)d->previous_scope_id
-        );
-    }
-}
-//@source src/analyzer/lifetime.c
-#include <stdint.h>
-#include <stddef.h>
-#include "analyzer/lifetime.h"
-#include "analyzer/trace.h"
-#include "executor/world.h"
-#include "executor/step.h"
-/*
- * We derive scope lifetimes purely from Steps:
- *  - STEP_ENTER_SCOPE: open lifetime
- *  - STEP_EXIT_SCOPE : close lifetime
- *
- * Step->info carries the scope id for both enter and exit.
- */
-size_t lifetime_collect_scopes(struct World *head,
-                               ScopeLifetime *out,
-                               size_t cap)
-{
-    if (!head || !out || cap == 0) {
-        return 0;
-    }
-    size_t n = 0;
-    Trace t = trace_begin(head);
-    while (trace_is_valid(&t)) {
-        World *w = trace_current(&t);
-        if (!w || !w->step) {
-            trace_next(&t);
-            continue;
-        }
-        Step *s = w->step;
-        if (s->kind == STEP_ENTER_SCOPE) {
-            if (n >= cap) {
-                return n; /* truncate for now */
-            }
-            out[n].scope_id      = s->info;
-            out[n].enter_time    = w->time;
-            out[n].exit_time     = UINT64_MAX;
-            out[n].enter_origin  = s->origin;
-            out[n].exit_origin   = NULL;
-            n++;
-        } else if (s->kind == STEP_EXIT_SCOPE) {
-            /* close the most recent open lifetime with matching scope_id */
-            uint64_t sid = s->info;
-            for (size_t i = n; i > 0; i--) {
-                ScopeLifetime *lt = &out[i - 1];
-                if (lt->scope_id == sid && lt->exit_time == UINT64_MAX) {
-                    lt->exit_time   = w->time;
-                    lt->exit_origin = s->origin;
-                    break;
-                }
-            }
-        }
-        trace_next(&t);
-    }
-    return n;
-}
-//@source src/analyzer/trace.c
-#include "analyzer/trace.h"
-#include "executor/world.h"
-#include <stdlib.h>
-/*
- * Create a Trace starting at the beginning of time.
- */
-Trace trace_begin(struct World *head)
-{
-    Trace t;
-    t.current = head;
-    return t;
-}
-/*
- * Create a Trace starting at the end of time.
- */
-Trace trace_end(struct World *tail)
-{
-    Trace t;
-    t.current = tail;
-    return t;
-}
-/*
- * Get the current World.
- */
-struct World *trace_current(Trace *t)
-{
-    if (!t) {
-        return NULL;
-    }
-    return t->current;
-}
-/*
- * Advance the Trace forward in time.
- */
-struct World *trace_next(Trace *t)
-{
-    if (!t || !t->current) {
-        return NULL;
-    }
-    t->current = t->current->next;
-    return t->current;
-}
-/*
- * Move the Trace backward in time.
- */
-struct World *trace_prev(Trace *t)
-{
-    if (!t || !t->current) {
-        return NULL;
-    }
-    t->current = t->current->prev;
-    return t->current;
-}
-/*
- * Check whether the Trace points to a valid World.
- */
-int trace_is_valid(const Trace *t)
-{
-    return t && t->current;
-}
-//@source src/analyzer/use.c
-#include "analyzer/use.h"
-#include "analyzer/trace.h"
-#include "executor/world.h"
-#include "executor/step.h"
-#include "lifetime.h"
-#include "executor/scope.h"
-size_t analyze_step_use(
-    const struct World *worlds,
-    const struct ScopeLifetime *lifetimes,
-    size_t lifetime_count,
-    UseReport *out,
-    size_t cap
-) {
-    size_t count = 0;
-    Trace t = trace_begin((struct World *)worlds);
-    while (trace_is_valid(&t)) {
-        const World *w = trace_current(&t);
-        const Step *s = w->step;
-        if (!s || s->kind != STEP_USE)
-            goto next;
-        if (count >= cap)
-            break;
-        UseReport r = {
-            .time = w->time,
-            .scope_id = w->active_scope ? w->active_scope->id : 0,
-            .storage_id = s->info,
-            .kind = USE_OK
-        };
-        /* Rule 1: use before declaration */
-        if (s->info == UINT64_MAX) {
-            r.kind = USE_BEFORE_DECLARE;
-            out[count++] = r;
-            goto next;
-        }
-        /* Rule 2: use after scope exit */
-        for (size_t i = 0; i < lifetime_count; i++) {
-            const ScopeLifetime *lt = &lifetimes[i];
-            if (lt->scope_id == r.scope_id &&
-                lt->exit_time != UINT64_MAX &&
-                r.time > lt->exit_time) {
-                r.kind = USE_AFTER_SCOPE;
-                out[count++] = r;
-                goto next;
-            }
-        }
-    next:
-        trace_next(&t);
-    }
-    return count;
-}
-//@source src/analyzer/validate.c
-#include "analyzer/validate.h"
-#include "analyzer/trace.h"
-#include "executor/world.h"
-#include "executor/step.h"
-#define MAX_SCOPE_DEPTH 128
-size_t validate_scope_invariants(
-    struct World *head,
-    ScopeViolation *out,
-    size_t cap
-) {
-    uint64_t stack[MAX_SCOPE_DEPTH];
-    size_t depth = 0;
-    size_t count = 0;
-    Trace t = trace_begin(head);
-    while (trace_is_valid(&t)) {
-        World *w = trace_current(&t);
-        if (!w || !w->step) {
-            trace_next(&t);
-            continue;
-        }
-        Step *s = w->step;
-        if (s->kind == STEP_ENTER_SCOPE) {
-            if (depth < MAX_SCOPE_DEPTH) {
-                stack[depth++] = s->info;
-            }
-        }
-        else if (s->kind == STEP_EXIT_SCOPE) {
-            if (depth == 0) {
-                if (count < cap) {
-                    out[count++] = (ScopeViolation){
-                        .kind = SCOPE_EXIT_WITHOUT_ENTER,
-                        .time = w->time,
-                        .scope_id = s->info
-                    };
-                }
-            } else {
-                uint64_t expected = stack[depth - 1];
-                if (expected != s->info) {
-                    if (count < cap) {
-                        out[count++] = (ScopeViolation){
-                            .kind = SCOPE_NON_LIFO_EXIT,
-                            .time = w->time,
-                            .scope_id = s->info
-                        };
-                    }
-                } else {
-                    depth--;
-                }
-            }
-        }
-        trace_next(&t);
-    }
-    /* Unclosed scopes */
-    for (size_t i = 0; i < depth && count < cap; i++) {
-        out[count++] = (ScopeViolation){
-            .kind = SCOPE_ENTER_WITHOUT_EXIT,
-            .time = UINT64_MAX,
-            .scope_id = stack[i]
-        };
-    }
-    return count;
-}
-//@source src/analyzer/variable_lifetime.c
-#include "analyzer/variable_lifetime.h"
-#include "analyzer/trace.h"
-#include "executor/world.h"
-#include "executor/step.h"
-#include "executor/scope.h"
-size_t lifetime_collect_variables(
-    struct World *head,
-    VariableLifetime *out,
-    size_t cap
-) {
-    size_t n = 0;
-    Trace t = trace_begin(head);
-    while (trace_is_valid(&t)) {
-        World *w = trace_current(&t);
-        Step *s = w->step;
-        if (s && s->kind == STEP_DECLARE) {
-            if (n >= cap) break;
-            out[n++] = (VariableLifetime){
-                .var_id        = s->info,
-                .scope_id      = w->active_scope ? w->active_scope->id : 0,
-                .declare_time  = w->time,
-                .end_time      = UINT64_MAX
-            };
-        }
-        if (s && s->kind == STEP_EXIT_SCOPE) {
-            uint64_t sid = s->info;
-            for (size_t i = 0; i < n; i++) {
-                if (out[i].scope_id == sid &&
-                    out[i].end_time == UINT64_MAX) {
-                    out[i].end_time = w->time;
-                }
-            }
-        }
-        trace_next(&t);
-    }
-    return n;
-}
+/* -------- SOURCES -------- */
 //@source src/common/arena.c
 #include <stdlib.h>
 #include <string.h>
@@ -1413,6 +1067,32 @@ int read_entire_file(
     *out_buf = buf;
     *out_len = (size_t)size;
     return 1;
+}
+//@source src/common/fs.c
+#include "common/fs.h"
+#include <sys/stat.h>
+#include <errno.h>
+#include <string.h>
+bool fs_mkdir_if_missing(const char *path)
+{
+    if (mkdir(path, 0755) == 0)
+        return true;
+    if (errno == EEXIST)
+        return true;
+    return false;
+}
+bool fs_write_file(const char *path, const char *data, size_t len)
+{
+    FILE *f = fopen(path, "w");
+    if (!f)
+        return false;
+    fwrite(data, 1, len, f);
+    fclose(f);
+    return true;
+}
+FILE *fs_open_file(const char *path)
+{
+    return fopen(path, "w");
 }
 //@source src/common/hashmap.c
 #include "common/hashmap.h"
@@ -2019,6 +1699,953 @@ World *world_clone(Universe *u, const World *src)
     w->next = NULL;
     return w;
 }
+//@source src/analyzer/artifact_emit.c
+#include "analyzer/artifact_emit.h"
+#include "analyzer/diagnostic_project.h"
+#include "common/fs.h"
+#include <stdio.h>
+#include <string.h>
+static void emit_meta(const ArtifactContext *ctx, const char *dir)
+{
+    char path[512];
+    snprintf(path, sizeof(path), "%s/meta.json", dir);
+    char buf[1024];
+    snprintf(
+        buf, sizeof(buf),
+        "{\n"
+        "  \"liminal_version\": \"0.5.3\",\n"
+        "  \"run_id\": \"%s\",\n"
+        "  \"started_at\": %lu,\n"
+        "  \"input\": \"%s\"\n"
+        "}\n",
+        ctx->run_id,
+        ctx->started_at,
+        ctx->input_path
+    );
+    fs_write_file(path, buf, strlen(buf));
+}
+static void emit_diagnostics(
+    const DiagnosticArtifact *a,
+    const char *dir
+)
+{
+    char path[512];
+    snprintf(path, sizeof(path), "%s/diagnostics.ndjson", dir);
+    FILE *out = fs_open_file(path);
+    if (!out)
+        return;
+    diagnostic_project_ndjson(a, out);
+    fclose(out);
+}
+bool artifact_emit_all(
+    const ArtifactContext *ctx,
+    const DiagnosticArtifact *diagnostics
+)
+{
+    char run_dir[512];
+    fs_mkdir_if_missing(ctx->root);
+    snprintf(run_dir, sizeof(run_dir), "%s/%s", ctx->root, ctx->run_id);
+    fs_mkdir_if_missing(run_dir);
+    emit_meta(ctx, run_dir);
+    emit_diagnostics(diagnostics, run_dir);
+    return true;
+}
+//@source src/analyzer/constraint_declaration.c
+//@source src/analyzer/constraint_declaration.c
+#include "analyzer/constraint.h"
+#include "analyzer/source_anchor.h"
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include "executor/scope.h"
+#include "common/hashmap.h"
+#include "frontends/c/ast.h"
+#include <stdlib.h>
+#include <stdint.h>
+static int scope_has_name(Scope *s, const char *name)
+{
+    return s && s->bindings && hashmap_get(s->bindings, name);
+}
+static SourceAnchor *anchor_from_origin(void *origin)
+{
+    if (!origin)
+        return NULL;
+    ASTNode *n = (ASTNode *)origin;
+    SourceAnchor *a = calloc(1, sizeof(SourceAnchor));
+    if (!a)
+        return NULL;
+    a->file    = NULL;          /* filled later (Stage 5.2) */
+    a->node_id = n->id;
+    a->line    = n->at.line;
+    a->col     = n->at.col;
+    return a;
+}
+ConstraintArtifact analyze_declaration_constraints(struct World *head)
+{
+    size_t cap = 64;
+    Constraint *buf = calloc(cap, sizeof(Constraint));
+    size_t count = 0;
+    if (!buf || !head) {
+        return (ConstraintArtifact){ .items = NULL, .count = 0 };
+    }
+    Trace t = trace_begin(head);
+    while (trace_is_valid(&t)) {
+        World *w = trace_current(&t);
+        Step  *s = w ? w->step : NULL;
+        if (!s || s->kind != STEP_DECLARE) {
+            trace_next(&t);
+            continue;
+        }
+        World *prev = w->prev;
+        if (!prev || !prev->active_scope)
+            goto next;
+        Scope *cur = prev->active_scope;
+        const char *name = NULL;
+        /* Extract name from AST origin (safe for now) */
+        if (s->origin) {
+            ASTNode *n = (ASTNode *)s->origin;
+            name = n->as.vdecl.name;
+        }
+        if (!name)
+            goto next;
+        /* 1. Redeclaration in same scope */
+        if (scope_has_name(cur, name) && count < cap) {
+            buf[count++] = (Constraint){
+                .kind       = CONSTRAINT_REDECLARATION,
+                .time       = w->time,
+                .scope_id   = cur->id,
+                .storage_id = s->info,
+                .anchor     = anchor_from_origin(s->origin)
+            };
+            goto next;
+        }
+        /* 2. Shadowing parent scope */
+        for (Scope *p = cur->parent; p; p = p->parent) {
+            if (scope_has_name(p, name) && count < cap) {
+                buf[count++] = (Constraint){
+                    .kind       = CONSTRAINT_SHADOWING,
+                    .time       = w->time,
+                    .scope_id   = cur->id,
+                    .storage_id = s->info,
+                    .anchor     = anchor_from_origin(s->origin)
+                };
+                break;
+            }
+        }
+    next:
+        trace_next(&t);
+    }
+    return (ConstraintArtifact){
+        .items = buf,
+        .count = count
+    };
+}
+//@source src/analyzer/constraint_diagnostic.c
+#include "analyzer/constraint.h"
+#include "analyzer/constraint_diagnostic.h"
+#include "analyzer/diagnostic.h"
+#include "analyzer/diagnostic_id.h"
+size_t constraint_to_diagnostic(
+    const ConstraintArtifact *constraints,
+    Diagnostic *out,
+    size_t cap
+) {
+    size_t count = 0;
+    if (!constraints || !out || cap == 0)
+        return 0;
+    for (size_t i = 0; i < constraints->count && count < cap; i++) {
+        const Constraint *c = &constraints->items[i];
+        Diagnostic *d = &out[count];
+        /* Stable identity derived from constraint */
+        d->id = diagnostic_id_from_constraint(c);
+        d->time      = c->time;
+        d->scope_id  = c->scope_id;
+        d->prev_scope = 0;
+        d->anchor    = c->anchor;
+        switch (c->kind) {
+        case CONSTRAINT_REDECLARATION:
+            d->kind = DIAG_REDECLARATION;
+            d->prev_scope = c->scope_id;
+            break;
+        case CONSTRAINT_SHADOWING:
+            d->kind = DIAG_SHADOWING;
+            /* parent scope not yet surfaced */
+            d->prev_scope = 0;
+            break;
+        case CONSTRAINT_USE_REQUIRES_DECLARATION:
+            d->kind = DIAG_USE_BEFORE_DECLARE;
+            break;
+        default:
+            /* Unknown / future constraint — ignored by design */
+            continue;
+        }
+        count++;
+    }
+    return count;
+}
+//@source src/analyzer/constraint_engine.c
+#include "analyzer/constraint_engine.h"
+#include "analyzer/constraint_variable.h"
+#include "analyzer/constraint_declaration.h"
+#include <stdlib.h>
+#include <string.h>
+ConstraintArtifact analyze_constraints(struct World *head)
+{
+    ConstraintArtifact a = analyze_variable_constraints(head);
+    ConstraintArtifact b = analyze_declaration_constraints(head);
+    /* Temporary merge (Stage 4 discipline) */
+    size_t total = a.count + b.count;
+    Constraint *buf = calloc(total, sizeof(Constraint));
+    if (!buf)
+        return a;
+    memcpy(buf, a.items, a.count * sizeof(Constraint));
+    memcpy(buf + a.count, b.items, b.count * sizeof(Constraint));
+    free(a.items);
+    free(b.items);
+    return (ConstraintArtifact){
+        .items = buf,
+        .count = total
+    };
+}
+//@source src/analyzer/constraint_scope.c
+//@source src/analyzer/constraint_variable.c
+#include "analyzer/constraint_variable.h"
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include <stdlib.h>
+#include <stdint.h>
+ConstraintArtifact analyze_variable_constraints(struct World *head)
+{
+    /* Empty artifact for degenerate cases */
+    if (!head) {
+        return (ConstraintArtifact){
+            .items = NULL,
+            .count = 0
+        };
+    }
+    /* Fixed-cap temporary buffer (Stage 4.x discipline) */
+    size_t cap = 64;
+    Constraint *buf = calloc(cap, sizeof(Constraint));
+    size_t count = 0;
+    if (!buf) {
+        return (ConstraintArtifact){
+            .items = NULL,
+            .count = 0
+        };
+    }
+    Trace t = trace_begin(head);
+    while (trace_is_valid(&t)) {
+        World *w = trace_current(&t);
+        Step  *s = w ? w->step : NULL;
+        if (s && s->kind == STEP_USE) {
+            /* Unresolved variable use → constraint */
+            if (s->info == UINT64_MAX && count < cap) {
+                buf[count++] = (Constraint){
+                    .kind       = CONSTRAINT_USE_REQUIRES_DECLARATION,
+                    .time       = w->time,
+                    .scope_id   = 0,           /* scope not required yet */
+                    .storage_id = UINT64_MAX
+                };
+            }
+        }
+        trace_next(&t);
+    }
+    return (ConstraintArtifact){
+        .items = buf,
+        .count = count
+    };
+}
+//@source src/analyzer/diagnostic.c
+#include "analyzer/diagnostic.h"
+#include "analyzer/constraint_engine.h"
+#include "analyzer/constraint_diagnostic.h"
+#include <stdlib.h>
+DiagnosticArtifact analyze_diagnostics(struct World *head)
+{
+    Diagnostic *buf = calloc(256, sizeof(Diagnostic));
+    size_t count = 0;
+    /* --- Canonical semantic path --- */
+    ConstraintArtifact constraints = analyze_constraints(head);
+    count += constraint_to_diagnostic(
+        &constraints,
+        buf + count,
+        256 - count
+    );
+    /* --- Temporary legacy path (shadowing only) --- */
+    // count += analyze_shadowing(head, buf + count, 256 - count);
+    return (DiagnosticArtifact){
+        .items = buf,
+        .count = count
+    };
+}
+const char *diagnostic_kind_name(DiagnosticKind k)
+{
+    switch (k) {
+    case DIAG_REDECLARATION: return "REDECLARATION";
+    case DIAG_SHADOWING: return "SHADOWING";
+    case DIAG_USE_BEFORE_DECLARE: return "USE_BEFORE_DECLARE";
+    case DIAG_USE_AFTER_SCOPE_EXIT: return "USE_AFTER_SCOPE_EXIT";
+    default: return "UNKNOWN";
+    }
+}
+//@source src/analyzer/diagnostic_dump.c
+#include "analyzer/diagnostic.h"
+#include "analyzer/diagnostic_id.h"
+#include <stdio.h>
+static const char *kind_str(DiagnosticKind k)
+{
+    switch (k) {
+    case DIAG_REDECLARATION:        return "REDECLARATION";
+    case DIAG_SHADOWING:            return "SHADOWING";
+    case DIAG_USE_BEFORE_DECLARE:   return "USE_BEFORE_DECLARE";
+    case DIAG_USE_AFTER_SCOPE_EXIT: return "USE_AFTER_SCOPE_EXIT";
+    default:                        return "UNKNOWN";
+    }
+}
+void diagnostic_dump(const DiagnosticArtifact *a)
+{
+    if (!a || a->count == 0)
+        return;
+    printf("\n-- DIAGNOSTICS --\n");
+    for (size_t i = 0; i < a->count; i++) {
+        const Diagnostic *d = &a->items[i];
+        printf(
+            "id=%016llx time=%llu %s scope=%llu prev_scope=%llu\n",
+            (unsigned long long)d->id.value,
+            (unsigned long long)d->time,
+            kind_str(d->kind),
+            (unsigned long long)d->scope_id,
+            (unsigned long long)d->prev_scope
+        );
+        if (d->anchor) {
+            printf(
+                " at node=%u line=%u col=%u\n",
+                d->anchor->node_id,
+                d->anchor->line,
+                d->anchor->col
+            );
+        }
+    }
+}
+//@source src/analyzer/diagnostic_id.c
+#include "analyzer/diagnostic_id.h"
+/*
+ * Stable identity derivation.
+ *
+ * This is NOT a hash.
+ * This is semantic composition.
+ */
+DiagnosticId diagnostic_id_from_constraint(const Constraint *c)
+{
+    DiagnosticId id = {0};
+    if (!c)
+        return id;
+    /*
+     * Bit layout (documented, stable):
+     *
+     * [ 16 bits kind ][ 16 bits scope ][ 32 bits time ]
+     *
+     * storage_id intentionally excluded for now:
+     *   - unstable across refactors
+     *   - can be added later if needed
+     */
+    id.value =
+        ((uint64_t)c->kind     << 48) |
+        ((uint64_t)c->scope_id << 32) |
+        (uint64_t)c->time;
+    return id;
+}
+//@source src/analyzer/diagnostic_project.c
+#include "analyzer/diagnostic_project.h"
+#include "analyzer/diagnostic.h"
+void diagnostic_project_ndjson(
+    const DiagnosticArtifact *a,
+    FILE *out
+)
+{
+    for (size_t i = 0; i < a->count; i++) {
+        const Diagnostic *d = &a->items[i];
+        fprintf(
+            out,
+            "{"
+            "\"id\":\"%016llx\","
+            "\"time\":%llu,"
+            "\"kind\":\"%s\","
+            "\"scope\":%llu,"
+            "\"prev_scope\":%llu",
+            (unsigned long long)d->id.value,
+            (unsigned long long)d->time,
+            diagnostic_kind_name(d->kind),
+            (unsigned long long)d->scope_id,
+            (unsigned long long)d->prev_scope
+        );
+        if (d->anchor) {
+            fprintf(
+                out,
+                ",\"anchor\":{"
+                "\"node\":%u,"
+                "\"line\":%u,"
+                "\"col\":%u"
+                "}",
+                d->anchor->node_id,
+                d->anchor->line,
+                d->anchor->col
+            );
+        }
+        fprintf(out, "}\n");
+    }
+}
+//@source src/analyzer/diagnostic_serialize.c
+#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
+#include "analyzer/diagnostic_serialize.h"
+#include "analyzer/source_anchor.h"
+int diagnostic_deserialize_line(
+    FILE *in,
+    Diagnostic *out
+) {
+    if (!in || !out)
+        return 0;
+    /*
+     * Expected format (strict, machine-owned):
+     *
+     * {
+     *   "id":"%llx",
+     *   "kind":%u,
+     *   "time":%llu,
+     *   "scope":%llu,
+     *   "prev_scope":%llu,
+     *   "anchor":...
+     * }
+     *
+     * Anchor is ignored for now (Stage 5.3 discipline).
+     */
+    unsigned long long id;
+    unsigned kind;
+    unsigned long long time;
+    unsigned long long scope;
+    unsigned long long prev_scope;
+    int n = fscanf(
+        in,
+        "{"
+        "\"id\":\"%llx\","
+        "\"kind\":%u,"
+        "\"time\":%llu,"
+        "\"scope\":%llu,"
+        "\"prev_scope\":%llu",
+        &id,
+        &kind,
+        &time,
+        &scope,
+        &prev_scope
+    );
+    if (n != 5)
+        return 0;
+    /* Skip rest of line (anchor + newline) */
+    int c;
+    while ((c = fgetc(in)) != '\n' && c != EOF) {}
+    out->id.value   = (uint64_t)id;
+    out->kind       = (DiagnosticKind)kind;
+    out->time       = (uint64_t)time;
+    out->scope_id   = (uint64_t)scope;
+    out->prev_scope = (uint64_t)prev_scope;
+    out->anchor     = NULL; /* reconstructed later */
+    return 1;
+}//@source src/analyzer/lifetime.c
+#include <stdint.h>
+#include <stddef.h>
+#include "analyzer/lifetime.h"
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include "executor/step.h"
+/*
+ * We derive scope lifetimes purely from Steps:
+ *  - STEP_ENTER_SCOPE: open lifetime
+ *  - STEP_EXIT_SCOPE : close lifetime
+ *
+ * Step->info carries the scope id for both enter and exit.
+ */
+size_t lifetime_collect_scopes(struct World *head,
+                               ScopeLifetime *out,
+                               size_t cap)
+{
+    if (!head || !out || cap == 0) {
+        return 0;
+    }
+    size_t n = 0;
+    Trace t = trace_begin(head);
+    while (trace_is_valid(&t)) {
+        World *w = trace_current(&t);
+        if (!w || !w->step) {
+            trace_next(&t);
+            continue;
+        }
+        Step *s = w->step;
+        if (s->kind == STEP_ENTER_SCOPE) {
+            if (n >= cap) {
+                return n; /* truncate for now */
+            }
+            out[n].scope_id      = s->info;
+            out[n].enter_time    = w->time;
+            out[n].exit_time     = UINT64_MAX;
+            out[n].enter_origin  = s->origin;
+            out[n].exit_origin   = NULL;
+            n++;
+        } else if (s->kind == STEP_EXIT_SCOPE) {
+            /* close the most recent open lifetime with matching scope_id */
+            uint64_t sid = s->info;
+            for (size_t i = n; i > 0; i--) {
+                ScopeLifetime *lt = &out[i - 1];
+                if (lt->scope_id == sid && lt->exit_time == UINT64_MAX) {
+                    lt->exit_time   = w->time;
+                    lt->exit_origin = s->origin;
+                    break;
+                }
+            }
+        }
+        trace_next(&t);
+    }
+    return n;
+}
+//@source src/analyzer/trace.c
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include <stdlib.h>
+/*
+ * Create a Trace starting at the beginning of time.
+ */
+Trace trace_begin(struct World *head)
+{
+    Trace t;
+    t.current = head;
+    return t;
+}
+/*
+ * Create a Trace starting at the end of time.
+ */
+Trace trace_end(struct World *tail)
+{
+    Trace t;
+    t.current = tail;
+    return t;
+}
+/*
+ * Get the current World.
+ */
+struct World *trace_current(Trace *t)
+{
+    if (!t) {
+        return NULL;
+    }
+    return t->current;
+}
+/*
+ * Advance the Trace forward in time.
+ */
+struct World *trace_next(Trace *t)
+{
+    if (!t || !t->current) {
+        return NULL;
+    }
+    t->current = t->current->next;
+    return t->current;
+}
+/*
+ * Move the Trace backward in time.
+ */
+struct World *trace_prev(Trace *t)
+{
+    if (!t || !t->current) {
+        return NULL;
+    }
+    t->current = t->current->prev;
+    return t->current;
+}
+/*
+ * Check whether the Trace points to a valid World.
+ */
+int trace_is_valid(const Trace *t)
+{
+    return t && t->current;
+}
+//@source src/analyzer/use.c
+#include "analyzer/use.h"
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include "lifetime.h"
+#include "executor/scope.h"
+size_t analyze_step_use(
+    const struct World *worlds,
+    const struct ScopeLifetime *lifetimes,
+    size_t lifetime_count,
+    UseReport *out,
+    size_t cap
+) {
+    size_t count = 0;
+    Trace t = trace_begin((struct World *)worlds);
+    while (trace_is_valid(&t)) {
+        const World *w = trace_current(&t);
+        const Step *s = w->step;
+        if (!s || s->kind != STEP_USE)
+            goto next;
+        if (count >= cap)
+            break;
+        UseReport r = {
+            .time = w->time,
+            .scope_id = w->active_scope ? w->active_scope->id : 0,
+            .storage_id = s->info,
+            .kind = USE_OK
+        };
+        /* Rule 1: use before declaration */
+        if (s->info == UINT64_MAX) {
+            r.kind = USE_BEFORE_DECLARE;
+            out[count++] = r;
+            goto next;
+        }
+        /* Rule 2: use after scope exit */
+        for (size_t i = 0; i < lifetime_count; i++) {
+            const ScopeLifetime *lt = &lifetimes[i];
+            if (lt->scope_id == r.scope_id &&
+                lt->exit_time != UINT64_MAX &&
+                r.time > lt->exit_time) {
+                r.kind = USE_AFTER_SCOPE;
+                out[count++] = r;
+                goto next;
+            }
+        }
+    next:
+        trace_next(&t);
+    }
+    return count;
+}
+//@source src/analyzer/validate.c
+#include "analyzer/validate.h"
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#define MAX_SCOPE_DEPTH 128
+size_t validate_scope_invariants(
+    struct World *head,
+    ScopeViolation *out,
+    size_t cap
+) {
+    uint64_t stack[MAX_SCOPE_DEPTH];
+    size_t depth = 0;
+    size_t count = 0;
+    Trace t = trace_begin(head);
+    while (trace_is_valid(&t)) {
+        World *w = trace_current(&t);
+        if (!w || !w->step) {
+            trace_next(&t);
+            continue;
+        }
+        Step *s = w->step;
+        if (s->kind == STEP_ENTER_SCOPE) {
+            if (depth < MAX_SCOPE_DEPTH) {
+                stack[depth++] = s->info;
+            }
+        }
+        else if (s->kind == STEP_EXIT_SCOPE) {
+            if (depth == 0) {
+                if (count < cap) {
+                    out[count++] = (ScopeViolation){
+                        .kind = SCOPE_EXIT_WITHOUT_ENTER,
+                        .time = w->time,
+                        .scope_id = s->info
+                    };
+                }
+            } else {
+                uint64_t expected = stack[depth - 1];
+                if (expected != s->info) {
+                    if (count < cap) {
+                        out[count++] = (ScopeViolation){
+                            .kind = SCOPE_NON_LIFO_EXIT,
+                            .time = w->time,
+                            .scope_id = s->info
+                        };
+                    }
+                } else {
+                    depth--;
+                }
+            }
+        }
+        trace_next(&t);
+    }
+    /* Unclosed scopes */
+    for (size_t i = 0; i < depth && count < cap; i++) {
+        out[count++] = (ScopeViolation){
+            .kind = SCOPE_ENTER_WITHOUT_EXIT,
+            .time = UINT64_MAX,
+            .scope_id = stack[i]
+        };
+    }
+    return count;
+}
+//@source src/analyzer/variable_lifetime.c
+#include "analyzer/variable_lifetime.h"
+#include "analyzer/trace.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include "executor/scope.h"
+size_t lifetime_collect_variables(
+    struct World *head,
+    VariableLifetime *out,
+    size_t cap
+) {
+    size_t n = 0;
+    Trace t = trace_begin(head);
+    while (trace_is_valid(&t)) {
+        World *w = trace_current(&t);
+        Step *s = w->step;
+        if (s && s->kind == STEP_DECLARE) {
+            if (n >= cap) break;
+            out[n++] = (VariableLifetime){
+                .var_id        = s->info,
+                .scope_id      = w->active_scope ? w->active_scope->id : 0,
+                .declare_time  = w->time,
+                .end_time      = UINT64_MAX
+            };
+        }
+        if (s && s->kind == STEP_EXIT_SCOPE) {
+            uint64_t sid = s->info;
+            for (size_t i = 0; i < n; i++) {
+                if (out[i].scope_id == sid &&
+                    out[i].end_time == UINT64_MAX) {
+                    out[i].end_time = w->time;
+                }
+            }
+        }
+        trace_next(&t);
+    }
+    return n;
+}
+//@source src/consumers/diagnostic_diff.c
+#include "consumers/diagnostic_diff.h"
+/*
+ * diagnostic_diff
+ *
+ * Compare two diagnostic artifacts by stable DiagnosticId.
+ *
+ * Output guarantees:
+ *  - Each DiagnosticId appears at most once
+ *  - No allocation
+ *  - No sorting
+ *  - Deterministic
+ *
+ * Complexity: O(n²) by design (small n, stable identity)
+ */
+size_t diagnostic_diff(
+    const DiagnosticArtifact *old_run,
+    const DiagnosticArtifact *new_run,
+    DiagnosticDiff *out,
+    size_t cap
+)
+{
+    size_t count = 0;
+    if (!out || cap == 0)
+        return 0;
+    /* ---- REMOVED / UNCHANGED ---- */
+    for (size_t i = 0; old_run && i < old_run->count; i++) {
+        DiagnosticId id = old_run->items[i].id;
+        int found = 0;
+        for (size_t j = 0; new_run && j < new_run->count; j++) {
+            if (new_run->items[j].id.value == id.value) {
+                found = 1;
+                break;
+            }
+        }
+        if (count >= cap)
+            return count;
+        out[count++] = (DiagnosticDiff){
+            .kind = found ? DIFF_UNCHANGED : DIFF_REMOVED,
+            .id   = id
+        };
+    }
+    /* ---- ADDED ---- */
+    for (size_t i = 0; new_run && i < new_run->count; i++) {
+        DiagnosticId id = new_run->items[i].id;
+        int found = 0;
+        for (size_t j = 0; old_run && j < old_run->count; j++) {
+            if (old_run->items[j].id.value == id.value) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found && count < cap) {
+            out[count++] = (DiagnosticDiff){
+                .kind = DIFF_ADDED,
+                .id   = id
+            };
+        }
+    }
+    return count;
+}
+//@source src/consumers/diagnostic_render.c
+#include "consumers/diagnostic_render.h"
+#include <stdio.h>
+#include "analyzer/diagnostic.h"
+/*
+ * Terminal renderer for diagnostics.
+ *
+ * Stage 5.4 discipline:
+ *  - read-only
+ *  - no allocation
+ *  - no formatting state
+ *  - stable output
+ */
+void
+diagnostic_render_terminal(
+    const DiagnosticArtifact *a,
+    FILE *out
+) {
+    if (!a || !a->items || a->count == 0) {
+        fprintf(out, "(no diagnostics)\n");
+        return;
+    }
+    for (size_t i = 0; i < a->count; i++) {
+        const Diagnostic *d = &a->items[i];
+        fprintf(
+            out,
+            "[%02zu] %-24s time=%llu scope=%llu",
+            i,
+            diagnostic_kind_name(d->kind),
+            (unsigned long long)d->time,
+            (unsigned long long)d->scope_id
+        );
+        if (d->prev_scope) {
+            fprintf(
+                out,
+                " prev_scope=%llu",
+                (unsigned long long)d->prev_scope
+            );
+        }
+        fprintf(
+            out,
+            " id=%016llx",
+            (unsigned long long)d->id.value
+        );
+        if (d->anchor) {
+            fprintf(
+                out,
+                " @ node=%u:%u:%u",
+                d->anchor->node_id,
+                d->anchor->line,
+                d->anchor->col
+            );
+        }
+        fputc('\n', out);
+    }
+}
+//@source src/consumers/diagnostic_stats.c
+#include "consumers/diagnostic_stats.h"
+#include <string.h>
+void diagnostic_stats_compute(
+    const DiagnosticArtifact *a,
+    DiagnosticStats *out
+)
+{
+    if (!a || !out)
+        return;
+    memset(out, 0, sizeof(*out));
+    out->total = a->count;
+    for (size_t i = 0; i < a->count; i++) {
+        DiagnosticKind k = a->items[i].kind;
+        if ((size_t)k < sizeof(out->by_kind) / sizeof(out->by_kind[0])) {
+            out->by_kind[k]++;
+        }
+    }
+}
+//@source src/consumers/diagnostic_stats_emit.c
+#include "consumers/diagnostic_stats.h"
+#include "analyzer/diagnostic.h"
+#include <stdio.h>
+/*
+ * Emit diagnostic statistics as JSON.
+ *
+ * Contract:
+ *  - single JSON object
+ *  - no allocation
+ *  - stable keys
+ */
+void diagnostic_stats_emit_json(
+    const DiagnosticStats *s,
+    FILE *out
+)
+{
+    fprintf(out, "{\n");
+    fprintf(out, "  \"total\": %zu,\n", s->total);
+    fprintf(out, "  \"by_kind\": {\n");
+    int first = 1;
+    for (size_t i = 0; i <= DIAG_USE_AFTER_SCOPE_EXIT; i++) {
+        if (s->by_kind[i] == 0)
+            continue;
+        if (!first)
+            fprintf(out, ",\n");
+        fprintf(
+            out,
+            "    \"%s\": %zu",
+            diagnostic_kind_name((DiagnosticKind)i),
+            s->by_kind[i]
+        );
+        first = 0;
+    }
+    fprintf(out, "\n  }\n");
+    fprintf(out, "}\n");
+}
+//@source src/consumers/diagnostic_validate.c
+#include "consumers/diagnostic_validate.h"
+/*
+ * validate_diagnostics
+ *
+ * Structural gate over DiagnosticArtifact.
+ *
+ * Detects:
+ *   - duplicate DiagnosticId
+ *   - non-monotonic time
+ *
+ * Discipline:
+ *   - no allocation
+ *   - no mutation
+ *   - deterministic
+ */
+size_t validate_diagnostics(
+    const DiagnosticArtifact *a,
+    ValidationIssue *out,
+    size_t cap
+)
+{
+    size_t count = 0;
+    if (!a || !out || cap == 0)
+        return 0;
+    /* ---- Duplicate IDs ---- */
+    for (size_t i = 0; i < a->count; i++) {
+        for (size_t j = i + 1; j < a->count; j++) {
+            if (a->items[i].id.value == a->items[j].id.value) {
+                if (count < cap) {
+                    out[count++] = (ValidationIssue){
+                        .kind = VALIDATION_DUPLICATE_ID,
+                        .id   = a->items[i].id
+                    };
+                }
+            }
+        }
+    }
+    /* ---- Monotonic time ---- */
+    for (size_t i = 1; i < a->count; i++) {
+        if (a->items[i].time < a->items[i - 1].time) {
+            if (count < cap) {
+                out[count++] = (ValidationIssue){
+                    .kind = VALIDATION_NON_MONOTONIC_TIME,
+                    .id   = a->items[i].id
+                };
+            }
+        }
+    }
+    return count;
+}
 //@source src/frontends/c/ast.c
 #include "frontends/c/ast.h"
 #include <stdlib.h>
@@ -2373,58 +3000,76 @@ static uint32_t parse_statement(ASTProgram *p, Lexer *lx)
 //@source src/main.c
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <stdbool.h>
 #include "executor/universe.h"
 #include "executor/world.h"
 #include "executor/step.h"
 #include "executor/scope.h"
+#include "executor/executor.h"
 #include "analyzer/trace.h"
 #include "analyzer/use.h"
-#include "frontends/c/ast.h"
-#include "frontends/c/frontend.h"
 #include "analyzer/lifetime.h"
-#include "executor/executor.h"
 #include "analyzer/diagnostic.h"
 #include "analyzer/constraint_engine.h"
+#include "analyzer/artifact_emit.h"
+#include "frontends/c/ast.h"
+#include "frontends/c/frontend.h"
+#include "commands/cmd_analyze.h"
 /*
  * Liminal CLI entry point
  *
- * This file is intentionally thin.
- * It exists only to orchestrate the high-level pipeline:
- *
- *   source -> AST -> Worlds -> Analysis -> Artifacts
- *
- * No semantic logic belongs here.
- * No execution details belong here.
- * No analysis logic belongs here.
- *
- * This file should remain boring forever.
+ * Orchestration ONLY.
+ * No semantics. No execution logic. No analysis logic.
  */
 static void print_usage(const char *prog)
 {
-    printf("Usage: %s <command> [args]\n", prog);
-    printf("\n");
-    printf("Commands:\n");
-    printf("  run <file>        Execute a program into a world delta set\n");
-    printf("  analyze <path>    Analyze world delta sets\n");
+    printf("Usage: %s run <file> [options]\n", prog);
+    printf("\nOptions:\n");
+    printf("  --emit-artifacts\n");
+    printf("  --artifact-dir <path>   (default: .liminal)\n");
+    printf("  --run-id <string>       (optional override)\n");
     printf("\n");
 }
-/*
- * Command: run
- *
- * Demonstration scaffold:
- *   - parse AST
- *   - build execution artifact
- *   - dump artifacts
- *   - run selected analysis passes
- */
-static int cmd_run(const char *path)
+static int cmd_run(int argc, char **argv)
 {
-    if (!path) {
+    const char *input_path = NULL;
+    const char *artifact_root = ".liminal";
+    const char *run_id_override = NULL;
+    bool emit_artifacts = false;
+    /* ---- ARG PARSING ---- */
+    for (int i = 0; i < argc; i++) {
+        if (!input_path && argv[i][0] != '-') {
+            input_path = argv[i];
+            continue;
+        }
+        if (strcmp(argv[i], "--emit-artifacts") == 0) {
+            emit_artifacts = true;
+            continue;
+        }
+        if (strcmp(argv[i], "--artifact-dir") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "error: --artifact-dir requires a path\n");
+                return 1;
+            }
+            artifact_root = argv[++i];
+            continue;
+        }
+        if (strcmp(argv[i], "--run-id") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "error: --run-id requires value\n");
+                return 1;
+            }
+            run_id_override = argv[++i];
+            continue;
+        }
+    }
+    if (!input_path) {
         fprintf(stderr, "error: no input file\n");
         return 1;
     }
     /* ---- FRONTEND ---- */
-    ASTProgram *ast = c_parse_file_to_ast(path);
+    ASTProgram *ast = c_parse_file_to_ast(input_path);
     if (!ast) {
         fprintf(stderr, "failed to parse AST\n");
         return 1;
@@ -2438,37 +3083,37 @@ static int cmd_run(const char *path)
         return 1;
     }
     executor_dump(u);
-    /* ---- ANALYSIS (Step 3.6) ---- */
-    DiagnosticArtifact a = analyze_diagnostics(u->head);
-    diagnostic_dump(&a);
-    /* ---- CLEANUP ---- */
+    /* ---- ANALYSIS ---- */
+    DiagnosticArtifact diagnostics = analyze_diagnostics(u->head);
+    diagnostic_dump(&diagnostics);
+    /* ---- ARTIFACT EMISSION ---- */
+    if (emit_artifacts) {
+        time_t now = time(NULL);
+        char run_id[64];
+        if (run_id_override) {
+            snprintf(run_id, sizeof(run_id), "%s", run_id_override);
+        } else {
+            snprintf(run_id, sizeof(run_id), "run-%lu", (unsigned long)now);
+        }
+        ArtifactContext ctx = {
+            .root       = artifact_root,
+            .run_id     = run_id,
+            .input_path = input_path,
+            .started_at = (unsigned long)now
+        };
+        artifact_emit_all(&ctx, &diagnostics);
+    }
     ast_program_free(ast);
-    return 0;
-}
-/*
- * Command: analyze
- *
- * Placeholder for future offline analysis pipeline.
- */
-static int cmd_analyze(const char *path)
-{
-    (void)path;
-    printf("analyze: coming soon\n");
     return 0;
 }
 int main(int argc, char **argv)
 {
     if (argc < 2) {
         print_usage(argv[0]);
-        printf("\ncoming soon\n");
         return 0;
     }
     if (strcmp(argv[1], "run") == 0) {
-        if (argc < 3) {
-            printf("error: missing input file\n");
-            return 1;
-        }
-        return cmd_run(argv[2]);
+        return cmd_run(argc - 2, argv + 2);
     }
     if (strcmp(argv[1], "analyze") == 0) {
         if (argc < 3) {
@@ -2479,6 +3124,5 @@ int main(int argc, char **argv)
     }
     printf("unknown command: %s\n", argv[1]);
     print_usage(argv[0]);
-    printf("\ncoming soon\n");
     return 1;
 }

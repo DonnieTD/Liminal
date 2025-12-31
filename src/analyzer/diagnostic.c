@@ -24,3 +24,14 @@ DiagnosticArtifact analyze_diagnostics(struct World *head)
         .count = count
     };
 }
+
+const char *diagnostic_kind_name(DiagnosticKind k)
+{
+    switch (k) {
+    case DIAG_REDECLARATION: return "REDECLARATION";
+    case DIAG_SHADOWING: return "SHADOWING";
+    case DIAG_USE_BEFORE_DECLARE: return "USE_BEFORE_DECLARE";
+    case DIAG_USE_AFTER_SCOPE_EXIT: return "USE_AFTER_SCOPE_EXIT";
+    default: return "UNKNOWN";
+    }
+}
