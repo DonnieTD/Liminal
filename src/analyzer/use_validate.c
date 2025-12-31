@@ -13,6 +13,10 @@ size_t analyze_step_use(
     UseReport *out,
     size_t cap
 ) {
+    // unused var fix
+    (void)lifetimes;
+    (void)lifetime_count;
+    
     size_t n = 0;
 
     for (const World *w = worlds; w; w = w->next) {
