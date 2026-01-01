@@ -27,32 +27,34 @@ Artifacts are separated from policy.
 ## Core Idea
 
 Programs are not instruction streams.
+
 Programs are trajectories through semantic reality.
 
-Execution is modeled as a sequence of immutable semantic states indexed
-by time.
+Execution is modeled as a sequence of immutable semantic states indexed by
+time.
 
 Bugs, undefined behavior, and exploits are treated as pathological
-transitions in that sequence, not as crashes, warnings, or abstract
+transitions in that sequence — not as crashes, warnings, or abstract rule
 violations.
 
 The engine answers one question:
 
-How did semantic reality evolve over time, and where did it stop being smooth?
+**How did semantic reality evolve over time, and where did it stop being smooth?**
 
 ---
 
 ## Architecture Summary
 
-The system is split into strictly separated stages:
+The system is split into strictly ordered stages:
 
-1. Frontend / Parser
-2. Executor
-3. Analyzer
-4. Constraint Engine
-5. Artifact Layer
-6. Visualization
-7. Cross-Run Reasoning
+1. Frontend / Parser  
+2. Executor  
+3. Analyzer  
+4. Constraint Engine  
+5. Artifact Layer  
+6. Visualization  
+7. Cross-Run Reasoning  
+8. Semantic Surface Construction  
 
 Data flows strictly forward.
 No stage mutates the output of a previous stage.
@@ -61,8 +63,7 @@ No stage mutates the output of a previous stage.
 
 ## Stage 1: Frontend / Parser
 
-Responsibility:
-What exists?
+**Responsibility:** What exists?
 
 The frontend parses C source code into an abstract syntax tree (AST).
 
@@ -74,15 +75,14 @@ The AST is:
 
 The AST represents the terrain the program will traverse.
 
-Primary artifact:
-- ASTProgram (arena-owned, stable node IDs)
+**Primary artifact**
+- `ASTProgram` (arena-owned, stable node IDs)
 
 ---
 
 ## Stage 2: Executor
 
-Responsibility:
-In what order did existence occur?
+**Responsibility:** In what order did existence occur?
 
 The executor:
 - starts from an empty initial state
@@ -93,15 +93,16 @@ The executor:
 
 For each semantic event:
 - one AST node is involved
-- a new World is created
-- the World is linked to the previous World
-- the semantic cause is recorded as a Step
+- a new `World` is created
+- the `World` is linked to the previous `World`
+- the semantic cause is recorded as a `Step`
 
 Execution produces a linear timeline:
 
-World0 -> World1 -> World2 -> ... -> WorldN
+World₀ → World₁ → World₂ → … → Worldₙ
 
-Primary artifacts:
+
+**Primary artifacts**
 - World timeline
 - Step stream
 
@@ -109,7 +110,7 @@ Primary artifacts:
 
 ## World
 
-A World represents the complete semantic state of the program at a single
+A `World` represents the complete semantic state of the program at a single
 moment in time.
 
 Worlds are immutable once created.
@@ -117,8 +118,6 @@ Worlds are immutable once created.
 A World contains:
 - monotonic time index
 - active lexical scope
-- call stack (future)
-- memory state (future)
 - the Step that caused this World
 - links to previous and next Worlds
 
@@ -136,7 +135,6 @@ The Universe owns time and history.
 
 The Universe:
 - owns the full World timeline
-- tracks the current World
 - advances execution by creating new Worlds
 - allows backward traversal for analysis
 
@@ -149,11 +147,8 @@ The Universe knows about Worlds.
 
 The World timeline acts as a bidirectional semantic write-ahead log.
 
-Forward traversal:
-- execution
-
-Backward traversal:
-- analysis
+- Forward traversal → execution
+- Backward traversal → analysis
 
 Execution happens once.
 Understanding happens arbitrarily many times.
@@ -162,29 +157,23 @@ Understanding happens arbitrarily many times.
 
 ## Policy Enforcement
 
-Liminal separates *diagnostics* from *authority*.
+Liminal separates **diagnostics** from **authority**.
 
 Diagnostics describe semantic facts.
 Policies decide whether those facts are acceptable.
 
 Policies:
-- consume DiagnosticArtifacts only
+- consume diagnostic artifacts only
 - are deterministic
 - may allow, warn, or deny execution
 
-This enables:
-- compiler-style gating
-- audit-only modes
-- strict or permissive semantic regimes
-
 Policy decisions are explicit and visible.
 
---- 
+---
 
 ## Stage 3: Analyzer
 
-Responsibility:
-What structural facts can be derived from this execution?
+**Responsibility:** What structural facts can be derived from this execution?
 
 The analyzer:
 - consumes the World timeline
@@ -192,25 +181,22 @@ The analyzer:
 - never mutates Worlds
 - derives semantic facts
 
-Primary artifacts:
-- ScopeLifetime
-- VariableLifetime
-- UseReport
+**Primary artifacts**
+- Scope lifetime
+- Variable lifetime
+- Use reports
 - Structural violations
-
-Analysis is pure, replayable, and repeatable.
 
 ---
 
 ## Stage 4: Constraint Engine
 
-Responsibility:
-What semantic rules must hold?
+**Responsibility:** What semantic rules must hold?
 
-This stage introduces constraints, not diagnostics.
+This stage introduces **constraints**, not diagnostics.
 
-Constraints express facts about semantic reality, independent of
-presentation or UX.
+Constraints express facts about semantic reality, independent of UX or
+presentation.
 
 Examples:
 - a variable use must have a declaration
@@ -218,320 +204,122 @@ Examples:
 - a declaration may not shadow a parent binding
 - a use may not occur after scope exit
 
-Constraints are:
-- derived from the World timeline
-- independent of reporting
-- stable across tooling
-
-Primary artifacts:
-- ConstraintArtifact
-- ConstraintKind
+**Primary artifacts**
 - Constraint sets
+- Constraint kinds
 
 ---
 
-## Stage 5: Artifact Layer (DONE)
+## Stage 5: Artifact Layer — DONE
 
-Responsibility:
-Make meaning stable.
+**Responsibility:** Make meaning stable.
 
 This layer:
 - assigns stable identity to semantic facts
 - anchors diagnostics to source structure
-- defines versioned, serializable artifacts
+- defines serializable, versioned artifacts
 - enables cross-run comparison
 
-This is where analysis becomes tooling-grade.
-
-Primary artifacts:
-- DiagnosticArtifact
-- DiagnosticId (stable across runs)
+**Primary artifacts**
+- `DiagnosticArtifact`
+- `DiagnosticId` (stable across runs)
 - NDJSON diagnostic streams
-- Artifact directories with metadata
-
-### Artifact Directory Contract
-
-.liminal/
-  <run-id>/
-    meta.json
-    diagnostics.ndjson
-
-Artifacts are:
-- deterministic
-- serializable
-- replayable
-- consumer-agnostic
 
 ---
 
-## Diagnostic Consumers
+## Stage 6: Visualization / Timeline Emission — DONE
 
-Stage 5 introduces first-class consumers:
+**Responsibility:** Make time visible.
 
-- Render: terminal diagnostics
-- Validate: structural gating (duplicate IDs, monotonic time)
-- Diff: cross-run comparison
-- Stats: aggregated diagnostic metrics
-
-Consumers:
-- never mutate artifacts
-- never allocate persistent state
-- are deterministic and composable
-
----
-
-## CLI Model
-
-Liminal provides two primary commands:
-
-liminal run <file> [--emit-artifacts]
-liminal analyze <artifact-dir>
-
-- run executes and optionally emits artifacts
-- analyze consumes artifacts only (no execution)
-
----
-
-## Stage 6: Visualization / Timeline Emission (PARTIAL)
-
-Responsibility:
-Make time visible.
-
-Stage 6 introduces first-class temporal consumers over execution history.
-
-The visualization layer:
-- consumes World timelines only
-- never re-executes
-- never mutates artifacts
-- renders semantic time explicitly
-
-Current capabilities:
+Capabilities:
 - linear timeline emission
 - step-by-step temporal traces
 - AST ↔ Step ↔ Time correlation
 - policy-gated execution outcomes
 
-Timeline output is deterministic and derived solely from the World sequence.
-
-Future work:
-- graph visualization
-- interactive inspection
-- cross-run temporal diffing
+All output is deterministic and derived solely from execution history.
 
 ---
 
-## Stage 7: Cross-Run Reasoning (Planned)
+## Stage 7: Cross-Run Reasoning — DONE
 
-Responsibility:
-Compare semantic realities across executions.
+**Responsibility:** Compare semantic realities across executions.
 
 Stage 7 operates exclusively on emitted artifacts.
-It never re-executes code, parses source, or inspects ASTs.
+It never:
+- re-executes code
+- inspects ASTs
+- depends on execution state
 
-This stage enables:
-- semantic diffing between runs
-- regression detection
-- semantic drift tracking
-- exploit delta analysis
-- time-based behavior comparison
+Concrete guarantees achieved:
+- identical runs produce empty diffs
+- single semantic changes produce stable `DiagnosticId` deltas
+- timeline divergence is localized and deterministic
+- repeated diffs are byte-for-byte identical
 
-Cross-run reasoning treats each execution as a completed reality and asks:
-
-What changed between these realities, and when did meaning diverge?
-
-Primary inputs:
-- meta.json
-- diagnostics.ndjson
-- timeline.ndjson
-
-Primary outputs:
-- diagnostic diffs
-- regression reports
-- timeline divergence summaries
-- exploit surface deltas
-
-Stage 7 establishes the foundation for security, regression, and exploit research
-without speculation or symbolic execution.
+Stage 7 establishes **semantic comparability** as a first-class property of
+the system.
 
 ---
 
-## Post-Stage 7 Development Phases
+## Stage 8: Semantic Surface Construction — DONE
 
-Once Stage 7 exists, further progress follows semantic expansion, not feature accretion.
+**Responsibility:** Turn semantic facts into actionable structure.
 
-The roadmap deliberately avoids premature lexer or language completeness.
+Stage 8 derives higher-order semantic objects from diagnostics and timelines,
+without mutation or persistence.
 
-### Phase A: Cross-Run Calibration (Current)
+This includes:
+- Root chains (causal paths per diagnostic)
+- Role assignment along chains
+- Convergence mapping between diagnostics
+- Minimal fix surfaces (smallest semantic change sets)
 
-Goal:
-Validate that semantic comparison is stable and meaningful.
+All Stage 8 artifacts are:
+- derived ephemerally
+- arena-allocated
+- analysis-only
+- non-persistent
 
-Activities:
-- build a small curated corpus of example programs
-- run repeated executions with controlled changes
-- validate diagnostic identity stability
-- validate timeline diff behavior
-- ensure regressions and drift are detectable without heuristics
-
-No new semantics are added in this phase.
-
-Exit condition:
-Cross-run diffs reliably detect semantic change when meaning changes,
-and remain stable when it does not.
+This stage is where meaning becomes actionable.
 
 ---
 
-### Phase B: Semantic Expansion (Before Syntax Expansion)
+## Post-Stage-8 Development Phases
 
-#### Phase B1: Memory Semantics (Existence, Not Bytes)
+Further work is semantic expansion, not architectural repair.
 
-Goal:
-Enable lifetime-based reasoning without implementing concrete memory models.
+### Phase A: Cross-Run Calibration
+Validate that semantic diffs change **only** when meaning changes.
 
-Scope:
-- allocation events
-- deallocation events
-- alias creation
-- lifetime invalidation
+### Phase B: Semantic Expansion
+- B1: Memory semantics (lifetime, aliasing)
+- B2: Control-flow shape (time, not logic)
 
-Explicitly out of scope:
-- pointer arithmetic
-- concrete addresses
-- memory layouts
-- byte-level modeling
-
-This phase enables detection of:
-- use-after-free
-- double-free
-- stale alias use
-- lifetime leaks
-
-Exit condition:
-Cross-run reasoning can detect changes in memory lifetime semantics.
-
----
-
-#### Phase B2: Control-Flow Shape (Time, Not Logic)
-
-Goal:
-Make execution shape and temporal structure observable.
-
-Scope:
-- conditional entry and exit
-- loop iteration
-- early return
-- structured control regions
-
-Explicitly out of scope:
-- condition evaluation
-- symbolic branching
-- speculative execution
-
-This phase enables detection of:
-- dead code activation
-- unexpected control flow
-- temporal regressions
-- time-of-check/time-of-use gaps
-
-Exit condition:
-Timeline diffs can identify where and when execution diverged.
-
----
-
-### Phase C: Lexer and Parser Expansion (Driven by Semantics)
-
-Goal:
-Support real-world C examples without premature language completeness.
-
-Rules:
-- syntax is added only when corresponding semantics exist
-- every new AST node must map to a semantic event
-- grammar growth is corpus-driven
-
-Exit condition:
-Realistic vulnerable C snippets can be represented faithfully,
-even if incompletely.
-
----
+### Phase C: Syntax Expansion
+Grammar grows only when corresponding semantics exist.
 
 ### Phase D: Exploit-Class Coverage
-
-Goal:
-Transition from bug detection to exploit research.
-
-Activities:
-- curate exploit-focused C corpora
-- map exploit classes to semantic patterns
-- track exploit surface changes across runs
-
-Exploit classes include:
-- use-after-free
-- double-free
-- shadowing-based authority confusion
-- temporal safety violations
-- control-flow misuse
-
-Exit condition:
-Stage 7 can answer:
-
-Did this change increase, decrease, or alter the semantic attack surface?
-
-At this point, Liminal operates as an exploit research engine,
-not a static analyzer.
-
----
-
-## Roadmap Clarification
-
-Language completeness is not a goal.
-
-Semantic observability is the primary axis of progress.
-
-Every new feature must:
-- produce observable semantic events
-- survive cross-run comparison
-- strengthen time-based reasoning
-
----
-
-## Summary
-
-Stages 1 through 6 establish semantic execution and time visibility.
-
-Stage 7 enables comparison between semantic realities.
-
-Phases A through D define the path from execution engine
-to exploit research platform.
-
----
-
-## Design Principles
-
-- Execute once, analyze forever
-- Prefer observation over inference
-- Prefer explicit state over abstraction
-- Time must always be explicit
-- Artifacts over opinions
+Measure exploit surface deltas across runs.
 
 ---
 
 ## Roadmap Status
 
-- Stage 1: DONE
-- Stage 2: DONE
-- Stage 3: DONE
-- Stage 4: DONE
-- Stage 5: DONE
-- Stage 6: DONE
-- Stage 7: PLANNED
-- Stage A: PLANNED
-- Stage B: PLANNED
-- Stage C: PLANNED
-- Stage D: PLANNED
+- Stage 1: DONE  
+- Stage 2: DONE  
+- Stage 3: DONE  
+- Stage 4: DONE  
+- Stage 5: DONE  
+- Stage 6: DONE  
+- Stage 7: DONE  
+- Stage 8: DONE  
+
+Next: **Phase A — Cross-Run Calibration**
 
 ---
 
 ## One-Line Summary
 
-Programs are executed once to produce a semantic history.
-Artifacts let us understand it forever.
+Programs are executed once to produce semantic history.  
+Stages 7 and 8 make that history comparable, explainable, and actionable.

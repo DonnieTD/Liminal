@@ -4,6 +4,7 @@
 #include "consumers/run_descriptor.h"
 #include "consumers/run_artifact.h"
 #include "consumers/semantic_diff.h"
+#include "consumers/timeline_diff.h"
 
 int load_run(const RunDescriptor *, RunArtifact *);
 void semantic_diff_render(
@@ -52,5 +53,15 @@ int cmd_diff(int argc, char **argv)
     );
 
     semantic_diff_render(diffs, n, stdout);
+
+    FILE *ta = fopen(a.timeline_path, "r");
+    FILE *tb = fopen(b.timeline_path, "r");
+
+    if (ta && tb) {
+        size_t d = timeline_diff_first_line(ta, tb);
+        if (d != (size_t)-1) {
+            printf("TIMELINE DIVERGENCE at line %zu\n", d);
+        }
+    }
     return 0;
 }
