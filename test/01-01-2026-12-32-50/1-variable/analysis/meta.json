@@ -1,0 +1,6 @@
+{
+  "liminal_version": "0.5.3",
+  "run_id": "analysis",
+  "started_at": 1767263573,
+  "input": "src/samples/basic/1-variable.c"
+}

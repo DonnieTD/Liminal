@@ -1,4 +1,4 @@
-/* LIMINAL_FLAT_MIN 20251231T204229Z */
+/* LIMINAL_FLAT_MIN 20260101T121526Z */
 /* -------- HEADERS -------- */
 //@header src/common/arena.h
 #ifndef LIMINAL_ARENA_H
@@ -178,53 +178,79 @@ typedef struct CallStack {
 /*
  * StepKind
  *
- * Enumerates the semantic reason *why* a World transition occurred.
+ * Enumerates semantic events in execution time.
  *
- * IMPORTANT:
- *  - StepKinds do NOT execute logic
- *  - They describe causality, not behavior
- *  - Analysis code relies on these being stable
+ * A Step answers:
+ *   "What happened at this moment?"
+ *
+ * It does NOT encode:
+ *   - control flow
+ *   - data flow
+ *   - ownership
+ *
+ * Those are derived later.
  */
 typedef enum StepKind {
     STEP_UNKNOWN = 0,
-    /* Structural */
+    /* Program structure */
     STEP_ENTER_PROGRAM,
     STEP_EXIT_PROGRAM,
     STEP_ENTER_FUNCTION,
     STEP_EXIT_FUNCTION,
-    /* Statements */
+    /* Control flow */
+    STEP_CALL,
     STEP_RETURN,
-    /* Existing (unused yet) */
+    /* Scopes */
     STEP_ENTER_SCOPE,
     STEP_EXIT_SCOPE,
-    STEP_CALL,
+    /* Variables */
     STEP_DECLARE,
     STEP_USE,
     STEP_ASSIGN,
+    /* Memory (future) */
     STEP_LOAD,
     STEP_STORE,
+    /* Catch-all */
     STEP_OTHER
 } StepKind;
 /*
  * Step
  *
- * A Step represents the semantic *cause* of a World transition.
+ * A Step is a single semantic cause marker.
  *
- * Steps:
- *  - do NOT execute logic
- *  - do NOT own memory
- *  - are immutable once created
+ * Invariants:
+ *  - Immutable once attached to a World
+ *  - Owned by the Universe
+ *  - Does NOT own memory
  *
- * Interpretation of `info` depends on StepKind:
- *  - ENTER / EXIT_SCOPE → scope id
- *  - DECLARE             → variable id
- *  - others              → kind-specific later
+ * Interpretation rules:
+ *  - `origin` is opaque (usually ASTNode*)
+ *  - `info` meaning depends on `kind`
+ *
+ * info semantics by kind:
+ *  - STEP_ENTER_SCOPE / EXIT_SCOPE → scope_id
+ *  - STEP_DECLARE / STEP_USE       → storage_id (or UINT64_MAX)
+ *  - otherwise                     → unused (0)
  */
 typedef struct Step {
     StepKind kind;
-    void    *origin;   // <-- opaque pointer
-    uint64_t info;     // <-- kind-specific ID
+    void    *origin;
+    uint64_t info;
 } Step;
+/*
+ * Canonical stringification.
+ *
+ * Executor-owned.
+ * Must stay stable for tooling.
+ */
+const char *step_kind_name(StepKind kind);
+/*
+ * Compatibility helper
+ */
+static inline const char *step_kind_str(StepKind kind)
+{
+    return step_kind_name(kind);
+}
 #endif /* LIMINAL_STEP_H */
 //@header src/executor/storage.h
 #ifndef LIMINAL_STORAGE_H
@@ -500,13 +526,16 @@ typedef struct DiagnosticId {
 } DiagnosticId;
 /*
  * Derive a stable diagnostic identity from a constraint.
- *
- * PURE:
- *  - no allocation
- *  - no globals
- *  - deterministic
  */
 DiagnosticId diagnostic_id_from_constraint(const Constraint *c);
+/*
+ * Render a diagnostic id (human-readable, stable).
+ *
+ * NOTE:
+ *  - Formatting is centralized here
+ *  - Consumers must not interpret DiagnosticId internals
+ */
+void diagnostic_id_render(DiagnosticId id);
 #endif /* LIMINAL_DIAGNOSTIC_ID_H */
 //@header src/analyzer/diagnostic_project.h
 #ifndef LIMINAL_DIAGNOSTIC_PROJECT_H
@@ -793,6 +822,119 @@ size_t lifetime_collect_variables(struct World *head,
                                   VariableLifetime *out,
                                   size_t cap);
 #endif
+//@header src/consumers/cause_key.h
+#ifndef LIMINAL_CAUSE_KEY_H
+#define LIMINAL_CAUSE_KEY_H
+#include <stdint.h>
+#include "executor/step.h"
+typedef struct CauseKey {
+    StepKind step;
+    uint64_t ast_id;
+    uint64_t scope_id;
+} CauseKey;
+/* MUST be exported — used by convergence_map */
+int cause_key_equal(const CauseKey *a, const CauseKey *b);
+#endif /* LIMINAL_CAUSE_KEY_H */
+//@header src/consumers/cause_key_extract.h
+#ifndef LIMINAL_CAUSE_KEY_EXTRACT_H
+#define LIMINAL_CAUSE_KEY_EXTRACT_H
+#include "consumers/root_chain.h"
+#include "consumers/cause_key.h"
+/*
+ * Extract a stable semantic cause key from a root chain.
+ *
+ * Returns:
+ *   0 on success
+ *  -1 if no valid cause key can be derived
+ *
+ * PURE:
+ *  - no allocation
+ *  - no mutation
+ */
+int extract_cause_key(
+    const RootChain *chain,
+    CauseKey *out
+);
+#endif /* LIMINAL_CAUSE_KEY_EXTRACT_H */
+//@header src/consumers/convergence_build.h
+#ifndef LIMINAL_CONVERGENCE_BUILD_H
+#define LIMINAL_CONVERGENCE_BUILD_H
+#include "analyzer/diagnostic.h"
+#include "consumers/root_chain.h"
+#include "consumers/convergence_map.h"
+/*
+ * Build convergence groups from diagnostics + root chains.
+ *
+ * PURE:
+ *  - no allocation outside ConvergenceMap
+ *  - deterministic
+ */
+int build_convergence_map(
+    const DiagnosticArtifact *diags,
+    const RootChain *chains,
+    ConvergenceMap *out
+);
+#endif /* LIMINAL_CONVERGENCE_BUILD_H */
+//@header src/consumers/convergence_map.h
+#ifndef LIMINAL_CONVERGENCE_MAP_H
+#define LIMINAL_CONVERGENCE_MAP_H
+#include <stddef.h>
+#include "consumers/cause_key.h"
+#include "analyzer/diagnostic.h"
+/*
+ * A convergence entry groups diagnostics that share
+ * an identical semantic cause key.
+ */
+typedef struct ConvergenceEntry {
+    CauseKey key;
+    const Diagnostic **diagnostics;
+    size_t count;
+    size_t capacity;
+} ConvergenceEntry;
+/*
+ * A convergence map groups all convergence entries
+ * discovered in a run.
+ */
+typedef struct ConvergenceMap {
+    ConvergenceEntry *entries;
+    size_t count;
+    size_t capacity;
+} ConvergenceMap;
+void convergence_map_add(
+    ConvergenceMap *map,
+    const CauseKey *key,
+    const Diagnostic *diag
+);
+#endif /* LIMINAL_CONVERGENCE_MAP_H */
+//@header src/consumers/convergence_render.h
+#ifndef LIMINAL_CONVERGENCE_RENDER_H
+#define LIMINAL_CONVERGENCE_RENDER_H
+#include "consumers/convergence_map.h"
+/*
+ * Render cross-diagnostic convergence to stdout.
+ */
+void render_convergence(const ConvergenceMap *map);
+#endif /* LIMINAL_CONVERGENCE_RENDER_H */
+//@header src/consumers/diagnostic_anchor.h
+#ifndef LIMINAL_DIAGNOSTIC_ANCHOR_H
+#define LIMINAL_DIAGNOSTIC_ANCHOR_H
+#include "analyzer/diagnostic.h"
+#include "consumers/timeline_event.h"
+typedef struct DiagnosticAnchor {
+    DiagnosticId id;
+    uint64_t diagnostic_time;
+    TimelineEvent cause;
+} DiagnosticAnchor;
+#endif
+//@header src/consumers/diagnostic_cause.h
+#ifndef LIMINAL_DIAGNOSTIC_CAUSE_H
+#define LIMINAL_DIAGNOSTIC_CAUSE_H
+#include "consumers/root_cause.h"
+typedef struct DiagnosticCause {
+    uint64_t diagnostic_id;
+    RootCause cause;
+} DiagnosticCause;
+#endif
 //@header src/consumers/diagnostic_diff.h
 #pragma once
 #include "analyzer/diagnostic.h"
@@ -866,6 +1008,296 @@ size_t validate_diagnostics(
     ValidationIssue *out,
     size_t cap
 );
+//@header src/consumers/fix_surface.h
+#pragma once
+#include <stddef.h>
+#include "consumers/cause_key.h"
+typedef struct {
+    CauseKey *causes;
+    size_t count;
+    size_t capacity;
+} FixSurface;
+//@header src/consumers/fix_surface_build.h
+#ifndef LIMINAL_FIX_SURFACE_BUILD_H
+#define LIMINAL_FIX_SURFACE_BUILD_H
+#include "consumers/convergence_map.h"
+#include "consumers/fix_surface.h"
+/*
+ * Extract minimal fix surface from convergence map.
+ *
+ * PURE:
+ *  - deterministic
+ *  - no mutation
+ */
+FixSurface build_fix_surface(const ConvergenceMap *map);
+#endif /* LIMINAL_FIX_SURFACE_BUILD_H */
+//@header src/consumers/fix_surface_render.h
+#ifndef LIMINAL_FIX_SURFACE_RENDER_H
+#define LIMINAL_FIX_SURFACE_RENDER_H
+#include "consumers/fix_surface.h"
+/*
+ * Render fix surface to stdout.
+ */
+void render_fix_surface(const FixSurface *fs);
+#endif /* LIMINAL_FIX_SURFACE_RENDER_H */
+//@header src/consumers/root_cause.h
+#ifndef LIMINAL_ROOT_CAUSE_H
+#define LIMINAL_ROOT_CAUSE_H
+#include <stdint.h>
+typedef enum RootCauseKind {
+    ROOT_CAUSE_DECLARATION,
+    ROOT_CAUSE_USE,
+    ROOT_CAUSE_SCOPE_ENTRY,
+    ROOT_CAUSE_SCOPE_EXIT,
+    ROOT_CAUSE_PREVIOUS_DIAGNOSTIC,
+    ROOT_CAUSE_UNKNOWN
+} RootCauseKind;
+typedef struct RootCause {
+    RootCauseKind kind;
+    uint64_t time;
+    uint64_t ast_id;
+    uint64_t scope_id;
+} RootCause;
+#endif
+//@header src/consumers/root_cause_extract.h
+#ifndef LIMINAL_ROOT_CAUSE_EXTRACT_H
+#define LIMINAL_ROOT_CAUSE_EXTRACT_H
+#include "executor/world.h"
+#include "analyzer/diagnostic.h"
+#include "consumers/root_cause.h"
+RootCause root_cause_extract(
+    const struct World *head,
+    const struct Diagnostic *d
+);
+#endif
+//@header src/consumers/root_chain.h
+#ifndef LIMINAL_ROOT_CHAIN_H
+#define LIMINAL_ROOT_CHAIN_H
+#include <stddef.h>
+#include <stdint.h>
+#include "common/arena.h"              // ✅ REQUIRED
+#include "executor/step.h"
+#include "executor/world.h"
+#include "analyzer/diagnostic.h"
+#include "analyzer/diagnostic_id.h"
+/*
+ * RootRole
+ *
+ * Structural role a step plays in a diagnostic chain.
+ */
+typedef enum RootRole {
+    ROOT_ROLE_CAUSE,
+    ROOT_ROLE_AMPLIFIER,
+    ROOT_ROLE_WITNESS,
+    ROOT_ROLE_SUPPRESSOR
+} RootRole;
+typedef struct RootChainNode {
+    uint64_t time;
+    StepKind step;
+    uint64_t ast_id;
+    uint64_t scope_id;
+    RootRole role;
+} RootChainNode;
+typedef struct RootChain {
+    DiagnosticId diagnostic_id;
+    RootChainNode *nodes;
+    size_t count;
+} RootChain;
+/*
+ * Build a root-cause chain by walking the World timeline backwards.
+ *
+ * PURE:
+ *  - no mutation
+ *  - arena-only allocation
+ */
+RootChain build_root_chain(
+    Arena *arena,
+    const World *head,
+    const Diagnostic *diag
+);
+/* Render only */
+void render_root_chain(const RootChain *chain);
+#endif /* LIMINAL_ROOT_CHAIN_H */
+//@header src/consumers/root_chain_role.h
+#ifndef LIMINAL_ROOT_CHAIN_ROLE_H
+#define LIMINAL_ROOT_CHAIN_ROLE_H
+#include "consumers/root_chain.h"
+#include "analyzer/diagnostic.h"
+/*
+ * Assign semantic roles to nodes in a root-cause chain.
+ *
+ * nodes[0] is the closest causal event to the diagnostic.
+ */
+void assign_root_chain_roles(
+    RootChain *chain,
+    DiagnosticKind kind
+);
+#endif /* LIMINAL_ROOT_CHAIN_ROLE_H */
+//@header src/consumers/run_artifact.h
+#ifndef LIMINAL_RUN_ARTIFACT_H
+#define LIMINAL_RUN_ARTIFACT_H
+#include <stddef.h>
+#include "analyzer/diagnostic.h"
+/*
+ * Loaded run snapshot.
+ *
+ * Immutable after load.
+ */
+typedef struct RunArtifact {
+    char *run_id;
+    char *input_path;
+    unsigned long started_at;
+    DiagnosticArtifact diagnostics;
+    /* Timeline (opaque for now) */
+    struct {
+        unsigned long time;
+        int step;
+        unsigned int ast;
+    } *timeline;
+    size_t timeline_count;
+} RunArtifact;
+#endif /* LIMINAL_RUN_ARTIFACT_H */
+//@header src/consumers/run_contract.h
+#ifndef LIMINAL_RUN_CONTRACT_H
+#define LIMINAL_RUN_CONTRACT_H
+/*
+ * Artifact presence contract.
+ *
+ * Required:
+ *   - meta.json
+ *   - diagnostics.ndjson
+ *
+ * Optional:
+ *   - timeline.ndjson
+ */
+typedef struct RunContract {
+    int require_meta;
+    int require_diagnostics;
+    int allow_missing_timeline;
+} RunContract;
+/* Canonical Stage 7.1 contract */
+static const RunContract LIMINAL_RUN_CONTRACT = {
+    .require_meta        = 1,
+    .require_diagnostics = 1,
+    .allow_missing_timeline = 1
+};
+#endif /* LIMINAL_RUN_CONTRACT_H */
+//@header src/consumers/run_descriptor.h
+#ifndef LIMINAL_RUN_DESCRIPTOR_H
+#define LIMINAL_RUN_DESCRIPTOR_H
+/*
+ * RunDescriptor
+ *
+ * Pure structural identity for a run directory.
+ * No IO, no validation, no semantics.
+ */
+typedef struct RunDescriptor {
+    const char *root_dir;
+    const char *run_id;
+    const char *meta_path;
+    const char *diagnostics_path;
+    const char *timeline_path;
+} RunDescriptor;
+#endif /* LIMINAL_RUN_DESCRIPTOR_H */
+//@header src/consumers/scope_alignment.h
+#ifndef LIMINAL_SCOPE_ALIGNMENT_H
+#define LIMINAL_SCOPE_ALIGNMENT_H
+#include <stdint.h>
+typedef enum ScopeChangeKind {
+    SCOPE_UNCHANGED,
+    SCOPE_ADDED,
+    SCOPE_REMOVED,
+    SCOPE_SPLIT,
+    SCOPE_MERGED,
+    SCOPE_MOVED
+} ScopeChangeKind;
+typedef struct ScopeAlignment {
+    uint64_t old_sig;
+    uint64_t new_sig;
+    ScopeChangeKind kind;
+} ScopeAlignment;
+#endif
+//@header src/consumers/scope_graph.h
+#ifndef LIMINAL_SCOPE_GRAPH_H
+#define LIMINAL_SCOPE_GRAPH_H
+#include <stdint.h>
+#include <stddef.h>
+typedef struct ScopeNode {
+    uint64_t scope_id;
+    uint64_t parent_id;     /* 0 = root */
+    uint64_t enter_time;
+    uint64_t exit_time;     /* UINT64_MAX if open */
+} ScopeNode;
+typedef struct ScopeGraph {
+    ScopeNode *nodes;
+    size_t count;
+} ScopeGraph;
+#endif /* LIMINAL_SCOPE_GRAPH_H */
+//@header src/consumers/scope_graph_extract.h
+#ifndef LIMINAL_SCOPE_GRAPH_EXTRACT_H
+#define LIMINAL_SCOPE_GRAPH_EXTRACT_H
+#include "executor/world.h"
+#include "consumers/scope_graph.h"
+ScopeGraph scope_graph_extract(
+    const struct World *head
+);
+#endif
+//@header src/consumers/scope_signature.h
+#ifndef LIMINAL_SCOPE_SIGNATURE_H
+#define LIMINAL_SCOPE_SIGNATURE_H
+#include <stdint.h>
+#include "consumers/scope_graph.h"
+uint64_t scope_signature(const ScopeNode *n);
+#endif
+//@header src/consumers/semantic_cause_diff.h
+#ifndef LIMINAL_SEMANTIC_CAUSE_DIFF_H
+#define LIMINAL_SEMANTIC_CAUSE_DIFF_H
+#include "consumers/semantic_diff.h"
+#include "consumers/diagnostic_anchor.h"
+typedef enum CauseChangeKind {
+    CAUSE_NONE,
+    CAUSE_NEW_STEP,
+    CAUSE_STEP_MOVED,
+    CAUSE_STEP_REMOVED
+} CauseChangeKind;
+typedef struct SemanticCauseDiff {
+    SemanticDiff base;
+    CauseChangeKind cause;
+    uint32_t old_step;
+    uint32_t new_step;
+} SemanticCauseDiff;
+#endif
+//@header src/consumers/semantic_diff.h
+#ifndef LIMINAL_SEMANTIC_DIFF_H
+#define LIMINAL_SEMANTIC_DIFF_H
+#include <stddef.h>
+#include "analyzer/diagnostic.h"
+typedef enum SemanticDiffKind {
+    SEMDIFF_ADDED,
+    SEMDIFF_REMOVED,
+    SEMDIFF_UNCHANGED,
+    SEMDIFF_MOVED   /* same id, different time */
+} SemanticDiffKind;
+typedef struct SemanticDiff {
+    SemanticDiffKind kind;
+    DiagnosticId id;
+    uint64_t old_time;
+    uint64_t new_time;
+} SemanticDiff;
+/*
+ * Compute semantic diff between two runs.
+ *
+ * No allocation.
+ * Deterministic.
+ * Stable ordering.
+ */
+size_t semantic_diff(
+    const DiagnosticArtifact *old_run,
+    const DiagnosticArtifact *new_run,
+    SemanticDiff *out,
+    size_t cap
+);
+#endif /* LIMINAL_SEMANTIC_DIFF_H */
 //@header src/consumers/timeline_emit.h
 #ifndef LIMINAL_TIMELINE_EMIT_H
 #define LIMINAL_TIMELINE_EMIT_H
@@ -882,6 +1314,28 @@ void timeline_emit_ndjson(
     FILE *out
 );
 #endif /* LIMINAL_TIMELINE_EMIT_H */
+//@header src/consumers/timeline_event.h
+#ifndef LIMINAL_TIMELINE_EVENT_H
+#define LIMINAL_TIMELINE_EVENT_H
+#include <stdint.h>
+typedef struct TimelineEvent {
+    uint64_t time;
+    uint32_t step_kind;
+    uint32_t ast_id;
+} TimelineEvent;
+#endif /* LIMINAL_TIMELINE_EVENT_H */
+//@header src/consumers/timeline_extract.h
+#ifndef LIMINAL_TIMELINE_EXTRACT_H
+#define LIMINAL_TIMELINE_EXTRACT_H
+#include <stddef.h>
+#include "executor/world.h"
+#include "consumers/timeline_event.h"
+size_t timeline_extract(
+    const struct World *head,
+    TimelineEvent *out,
+    size_t cap
+);
+#endif
 //@header src/frontends/c/ast.h
 #ifndef LIMINAL_C_AST_H
 #define LIMINAL_C_AST_H
@@ -1025,7 +1479,104 @@ int   lexer_accept(Lexer *lx, TokKind k);
  */
 ASTProgram *parse_translation_unit(Lexer *lx);
 #endif /* LIMINAL_C_PARSER_H */
-/* -------- SOURCES -------- */
+//@header src/commands/cmd_analyze.h
+#ifndef LIMINAL_CMD_ANALYZE_H
+#define LIMINAL_CMD_ANALYZE_H
+int cmd_analyze(int argc, char **argv);
+#endif
+//@header src/commands/cmd_diff.h
+#ifndef LIMINAL_CMD_DIFF_H
+#define LIMINAL_CMD_DIFF_H
+int cmd_diff(int argc, char **argv);
+#endif /* LIMINAL_CMD_DIFF_H */
+//@header src/commands/cmd_policy.h
+#ifndef LIMINAL_CMD_POLICY_H
+#define LIMINAL_CMD_POLICY_H
+#include "policy/policy.h"
+#include "analyzer/diagnostic.h"
+/*
+ * Print policy decision to stderr.
+ * Returns non-zero on POLICY_DENY.
+ */
+int cmd_apply_policy(
+    const Policy *policy,
+    const DiagnosticArtifact *diagnostics
+);
+#endif /* LIMINAL_CMD_POLICY_H */
+//@header src/commands/command.h
+#ifndef LIMINAL_COMMAND_H
+#define LIMINAL_COMMAND_H
+typedef int (*command_fn)(int argc, char **argv);
+typedef struct {
+    const char *name;
+    int min_args;
+    command_fn handler;
+} CommandSpec;
+/*
+ * Dispatch a subcommand.
+ *
+ * argc/argv are expected to start at the command name.
+ */
+int dispatch_command(
+    int argc,
+    char **argv,
+    const CommandSpec *commands,
+    int command_count
+);
+#endif /* LIMINAL_COMMAND_H */
+//@header src/policy/default_policy.h
+#ifndef LIMINAL_DEFAULT_POLICY_H
+#define LIMINAL_DEFAULT_POLICY_H
+#include "policy/policy.h"
+/*
+ * Default Liminal policy.
+ *
+ * Philosophy:
+ *  - Structural violations deny
+ *  - Shadowing warns
+ *  - Redeclaration denies
+ *  - Use-before-declare denies
+ */
+extern const Policy LIMINAL_DEFAULT_POLICY;
+#endif /* LIMINAL_DEFAULT_POLICY_H */
+//@header src/policy/policy.h
+#ifndef LIMINAL_POLICY_H
+#define LIMINAL_POLICY_H
+#include <stddef.h>
+#include "analyzer/diagnostic.h"
+typedef struct Policy {
+    unsigned char deny_kind[DIAG_KIND_MAX];
+    size_t        max_by_kind[DIAG_KIND_MAX];
+    size_t        max_total;
+} Policy;
+typedef enum PolicyDecision {
+    POLICY_ALLOW = 0,
+    POLICY_WARN,
+    POLICY_DENY
+} PolicyDecision;
+typedef struct PolicyRule {
+    DiagnosticKind kind;
+    size_t max_count;   /* 0 = unlimited */
+    int deny;           /* boolean */
+} PolicyRule;
+/*
+ * Apply policy to diagnostics.
+ *
+ * Returns:
+ *   0 → allowed
+ *   non-zero → policy violation
+ */
+int cmd_apply_policy(
+    const Policy *policy,
+    const DiagnosticArtifact *diagnostics
+);
+PolicyDecision policy_evaluate(
+    const Policy *policy,
+    const DiagnosticArtifact *diagnostics
+);
+#endif /* LIMINAL_POLICY_H */
+//@header src/policy/policy_default.h
+Policy policy_default(void);/* -------- SOURCES -------- */
 //@source src/common/arena.c
 #include <stdlib.h>
 #include <string.h>
@@ -1377,8 +1928,40 @@ void __liminal_stub2(void) {}
 /* intentionally empty */
 void __liminal_stub3(void) {}
 //@source src/executor/step.c
-/* intentionally empty */
-void __liminal_stub4(void) {}
+#include "executor/step.h"
+/*
+ * Canonical stringification for StepKind
+ *
+ * This symbol MUST be exported.
+ * It is relied upon by renderers and consumers.
+ */
+const char *step_kind_name(StepKind kind)
+{
+    switch (kind) {
+        case STEP_UNKNOWN:        return "unknown";
+        /* Program structure */
+        case STEP_ENTER_PROGRAM:  return "enter_program";
+        case STEP_EXIT_PROGRAM:   return "exit_program";
+        case STEP_ENTER_FUNCTION: return "enter_function";
+        case STEP_EXIT_FUNCTION:  return "exit_function";
+        /* Control flow */
+        case STEP_CALL:           return "call";
+        case STEP_RETURN:         return "return";
+        /* Scopes */
+        case STEP_ENTER_SCOPE:    return "enter_scope";
+        case STEP_EXIT_SCOPE:     return "exit_scope";
+        /* Variables */
+        case STEP_DECLARE:        return "declare";
+        case STEP_USE:            return "use";
+        case STEP_ASSIGN:         return "assign";
+        /* Memory (future) */
+        case STEP_LOAD:           return "load";
+        case STEP_STORE:          return "store";
+        /* Catch-all */
+        case STEP_OTHER:          return "other";
+        default:                  return "invalid";
+    }
+}
 //@source src/executor/universe.c
 #include <stdlib.h>
 #include "executor/universe.h"
@@ -2071,32 +2654,29 @@ void diagnostic_dump(const DiagnosticArtifact *a)
     }
 }
 //@source src/analyzer/diagnostic_id.c
+#include <stdio.h>
+#include <inttypes.h>
 #include "analyzer/diagnostic_id.h"
+#include "analyzer/constraint.h"
 /*
- * Stable identity derivation.
+ * diagnostic_id_from_constraint
  *
- * This is NOT a hash.
- * This is semantic composition.
+ * Stable semantic identity for a diagnostic.
  */
 DiagnosticId diagnostic_id_from_constraint(const Constraint *c)
 {
     DiagnosticId id = {0};
     if (!c)
         return id;
-    /*
-     * Bit layout (documented, stable):
-     *
-     * [ 16 bits kind ][ 16 bits scope ][ 32 bits time ]
-     *
-     * storage_id intentionally excluded for now:
-     *   - unstable across refactors
-     *   - can be added later if needed
-     */
-    id.value =
-        ((uint64_t)c->kind     << 48) |
-        ((uint64_t)c->scope_id << 32) |
-        (uint64_t)c->time;
+    /* Simple structural hash — stable across runs */
+    id.value ^= (uint64_t)c->kind;
+    id.value ^= (uint64_t)c->time << 16;
+    id.value ^= (uint64_t)c->scope_id << 32;
     return id;
+}
+void diagnostic_id_render(DiagnosticId id)
+{
+    printf("%016" PRIx64, id.value);
 }
 //@source src/analyzer/diagnostic_project.c
 #include "analyzer/diagnostic_project.h"
@@ -2448,6 +3028,177 @@ size_t lifetime_collect_variables(
     }
     return n;
 }
+//@source src/consumers/cause_key.c
+#include "cause_key.h"
+inline int cause_key_equal(const CauseKey *a, const CauseKey *b)
+{
+    return a->step == b->step &&
+           a->ast_id == b->ast_id &&
+           a->scope_id == b->scope_id;
+}
+//@source src/consumers/cause_key_extract.c
+#include "consumers/cause_key.h"
+#include "consumers/root_chain.h"
+#include "executor/step.h"
+#include "consumers/cause_key_extract.h"
+/*
+ * Extract a CauseKey from a RootChain.
+ *
+ * Stage 7 discipline:
+ * - deterministic
+ * - no allocation
+ * - no mutation
+ *
+ * Strategy:
+ * - Use the FIRST node in the chain (closest causal event)
+ */
+int extract_cause_key(
+    const RootChain *chain,
+    CauseKey *out
+)
+{
+    if (!chain || !out || chain->count == 0) {
+        return 1;
+    }
+    const RootChainNode *n = &chain->nodes[0];
+    out->step     = n->step;
+    out->ast_id   = n->ast_id;
+    out->scope_id = n->scope_id;
+    return 0;
+}
+//@source src/consumers/convergence_build.c
+#include <stddef.h>
+#include "consumers/convergence_map.h"
+#include "consumers/root_chain.h"
+#include "consumers/cause_key_extract.h"  
+#include "consumers/cause_key.h"
+#include "analyzer/diagnostic.h"
+/*
+ * Build convergence groups across diagnostics by causal signature.
+ */
+int build_convergence_map(
+    const DiagnosticArtifact *diags,
+    const RootChain *chains,
+    ConvergenceMap *out
+)
+{
+    if (!diags || !chains || !out)
+        return -1;
+    for (size_t i = 0; i < diags->count; i++) {
+        CauseKey key;
+        if (extract_cause_key(&chains[i], &key) == 0) {
+            convergence_map_add(out, &key, &diags->items[i]);
+        }
+    }
+    return 0;
+}
+//@source src/consumers/convergence_map.c
+#include <stdlib.h>
+#include <string.h>
+#include "consumers/convergence_map.h"
+#include "consumers/cause_key.h"
+/* Forward declaration — real definition lives in cause_key.c */
+int cause_key_equal(const CauseKey *a, const CauseKey *b);
+static ConvergenceEntry *
+find_entry(ConvergenceMap *m, const CauseKey *key)
+{
+    for (size_t i = 0; i < m->count; i++) {
+        if (cause_key_equal(&m->entries[i].key, key))
+            return &m->entries[i];
+    }
+    return NULL;
+}
+void convergence_map_add(
+    ConvergenceMap *m,
+    const CauseKey *key,
+    const Diagnostic *diag
+)
+{
+    ConvergenceEntry *e = find_entry(m, key);
+    if (!e) {
+        if (m->count == m->capacity) {
+            size_t nc = m->capacity ? m->capacity * 2 : 4;
+            m->entries = realloc(m->entries, nc * sizeof(*m->entries));
+            m->capacity = nc;
+        }
+        e = &m->entries[m->count++];
+        memset(e, 0, sizeof(*e));
+        e->key = *key;
+    }
+    if (e->count == e->capacity) {
+        size_t nc = e->capacity ? e->capacity * 2 : 4;
+        e->diagnostics = realloc(e->diagnostics, nc * sizeof(*e->diagnostics));
+        e->capacity = nc;
+    }
+    e->diagnostics[e->count++] = diag;
+}
+//@source src/consumers/convergence_render.c
+#include <stdio.h>
+#include "consumers/convergence_map.h"
+#include "executor/step.h"
+#include "analyzer/diagnostic.h"
+/*
+ * render_convergence
+ *
+ * Presentation-only.
+ * No building, no allocation, no mutation.
+ */
+void render_convergence(const ConvergenceMap *m)
+{
+    if (!m || m->count == 0)
+        return;
+    printf("\n== Cross-Diagnostic Convergence ==\n");
+    for (size_t i = 0; i < m->count; i++) {
+        const ConvergenceEntry *e = &m->entries[i];
+        /* Only interesting if multiple diagnostics converge */
+        if (e->count < 2)
+            continue;
+        printf(
+            "\nCAUSE: step=%s ast=%llu scope=%llu\n",
+            step_kind_name(e->key.step),
+            (unsigned long long)e->key.ast_id,
+            (unsigned long long)e->key.scope_id
+        );
+        for (size_t j = 0; j < e->count; j++) {
+            const Diagnostic *d = e->diagnostics[j];
+            printf(
+                "  ↳ %s (time=%llu)\n",
+                diagnostic_kind_name(d->kind),
+                (unsigned long long)d->time
+            );
+        }
+    }
+}
+//@source src/consumers/diagnostic_anchor.c
+#include "consumers/diagnostic_anchor.h"
+int anchor_diagnostic(
+    const Diagnostic *d,
+    const TimelineEvent *events,
+    size_t event_count,
+    DiagnosticAnchor *out
+)
+{
+    if (!d || !events || !out)
+        return 0;
+    TimelineEvent best = {0};
+    int found = 0;
+    for (size_t i = 0; i < event_count; i++) {
+        if (events[i].time <= d->time) {
+            best = events[i];
+            found = 1;
+        } else {
+            break;
+        }
+    }
+    if (!found)
+        return 0;
+    *out = (DiagnosticAnchor){
+        .id = d->id,
+        .diagnostic_time = d->time,
+        .cause = best
+    };
+    return 1;
+}
 //@source src/consumers/diagnostic_diff.c
 #include "consumers/diagnostic_diff.h"
 /*
@@ -2678,6 +3429,736 @@ size_t validate_diagnostics(
     }
     return count;
 }
+//@source src/consumers/fix_surface_build.c
+#include <stdlib.h>
+#include <string.h>
+#include "consumers/fix_surface.h"
+#include "consumers/convergence_map.h"
+static void add_cause(FixSurface *fs, const CauseKey *key)
+{
+    if (fs->count == fs->capacity) {
+        size_t nc = fs->capacity ? fs->capacity * 2 : 4;
+        fs->causes = realloc(fs->causes, nc * sizeof(*fs->causes));
+        fs->capacity = nc;
+    }
+    fs->causes[fs->count++] = *key;
+}
+FixSurface build_fix_surface(const ConvergenceMap *map)
+{
+    FixSurface fs = {0};
+    /* In current architecture:
+       every diagnostic belongs to exactly one cause.
+       So minimal fix surface = all unique causes.
+     */
+    for (size_t i = 0; i < map->count; i++) {
+        add_cause(&fs, &map->entries[i].key);
+    }
+    return fs;
+}
+//@source src/consumers/fix_surface_render.c
+#include <stdio.h>
+#include "consumers/fix_surface.h"
+#include "executor/step.h"
+void render_fix_surface(const FixSurface *fs)
+{
+    printf("\n== Minimal Fix Surface ==\n");
+    for (size_t i = 0; i < fs->count; i++) {
+        const CauseKey *c = &fs->causes[i];
+        printf(
+            "FIX: step=%s ast=%llu scope=%llu\n",
+            step_kind_str(c->step),
+            (unsigned long long)c->ast_id,
+            (unsigned long long)c->scope_id
+        );
+    }
+}
+//@source src/consumers/load_diagnostics.c
+#include "analyzer/diagnostic.h"
+#include "analyzer/diagnostic_serialize.h"
+#include <stdio.h>
+#include <stdlib.h>
+int load_diagnostics(const char *path, DiagnosticArtifact *out)
+{
+    if (!path || !out)
+        return 1;
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return 2;
+    Diagnostic *buf = calloc(256, sizeof(Diagnostic));
+    size_t count = 0;
+    while (count < 256 &&
+           diagnostic_deserialize_line(f, &buf[count])) {
+        count++;
+    }
+    fclose(f);
+    out->items = buf;
+    out->count = count;
+    return 0;
+}
+//@source src/consumers/load_run.c
+#include "consumers/run_descriptor.h"
+#include "consumers/run_artifact.h"
+int run_probe(const RunDescriptor *rd);
+int load_diagnostics(const char *path, DiagnosticArtifact *out);
+int load_timeline(const char *path, void **out, size_t *count);
+int load_run(const RunDescriptor *rd, RunArtifact *out)
+{
+    if (!rd || !out)
+        return 1;
+    int rc = run_probe(rd);
+    if (rc != 0)
+        return rc;
+    out->run_id = (char *)rd->run_id;
+    if (load_diagnostics(rd->diagnostics_path,
+                          &out->diagnostics) != 0)
+        return 10;
+    /* Timeline optional */
+    if (rd->timeline_path) {
+        load_timeline(
+            rd->timeline_path,
+            (void **)&out->timeline,
+            &out->timeline_count
+        );
+    }
+    return 0;
+}
+//@source src/consumers/load_timeline.c
+#include <stdio.h>
+#include <stdlib.h>
+typedef struct TimelineEvent {
+    unsigned long time;
+    int step;
+    unsigned int ast;
+} TimelineEvent;
+int load_timeline(const char *path,
+                  TimelineEvent **out,
+                  size_t *out_count)
+{
+    if (!path || !out || !out_count)
+        return 1;
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return 2;
+    TimelineEvent *buf = calloc(256, sizeof(TimelineEvent));
+    size_t count = 0;
+    while (count < 256) {
+        TimelineEvent e;
+        int n = fscanf(
+            f,
+            "{\"time\":%lu,\"step\":%d,\"ast\":%u}\n",
+            &e.time,
+            &e.step,
+            &e.ast
+        );
+        if (n != 3)
+            break;
+        buf[count++] = e;
+    }
+    fclose(f);
+    *out = buf;
+    *out_count = count;
+    return 0;
+}
+//@source src/consumers/root_cause_extract.c
+#include "consumers/root_cause_extract.h"
+#include "executor/step.h"
+#include "frontends/c/ast.h"
+RootCause root_cause_extract(
+    const struct World *head,
+    const struct Diagnostic *d
+)
+{
+    const struct World *w = head;
+    /* Seek to diagnostic time */
+    while (w && w->time != d->time)
+        w = w->next;
+    /* Walk backwards */
+    while (w && w->prev) {
+        w = w->prev;
+        if (!w->step)
+            continue;
+        ASTNode *n = (ASTNode *)w->step->origin;
+        uint64_t ast_id = n ? n->id : 0;
+        /* Declaration-related diagnostics */
+        if (d->kind == DIAG_REDECLARATION ||
+            d->kind == DIAG_SHADOWING) {
+            if (w->step->kind == STEP_DECLARE) {
+                return (RootCause){
+                    .kind     = ROOT_CAUSE_DECLARATION,
+                    .time     = w->time,
+                    .ast_id   = ast_id,
+                    .scope_id = d->scope_id   /* diagnostic-derived */
+                };
+            }
+        }
+        /* Use-related diagnostics */
+        if (d->kind == DIAG_USE_BEFORE_DECLARE) {
+            if (w->step->kind == STEP_USE) {
+                return (RootCause){
+                    .kind     = ROOT_CAUSE_USE,
+                    .time     = w->time,
+                    .ast_id   = ast_id,
+                    .scope_id = d->scope_id
+                };
+            }
+        }
+        /* Scope entry / exit is authoritative */
+        if (w->step->kind == STEP_ENTER_SCOPE ||
+            w->step->kind == STEP_EXIT_SCOPE) {
+            return (RootCause){
+                .kind     = (w->step->kind == STEP_ENTER_SCOPE)
+                              ? ROOT_CAUSE_SCOPE_ENTRY
+                              : ROOT_CAUSE_SCOPE_EXIT,
+                .time     = w->time,
+                .ast_id   = ast_id,
+                .scope_id = w->step->info   /* ← THIS is correct */
+            };
+        }
+    }
+    return (RootCause){
+        .kind     = ROOT_CAUSE_UNKNOWN,
+        .time     = d->time,
+        .ast_id   = 0,
+        .scope_id = d->scope_id
+    };
+}
+//@source src/consumers/root_chain.c
+#include "common/arena.h"
+#include "consumers/root_chain.h"
+#include "analyzer/diagnostic.h"   // ✅ REQUIRED
+#include "executor/world.h"
+#include "executor/step.h"
+void build_and_render_root_chains(
+    const World *world,
+    const DiagnosticArtifact *diags
+)
+{
+    if (diags->count == 0)
+        return;
+    Arena arena;
+    arena_init(&arena, 4096);
+    for (size_t i = 0; i < diags->count; i++) {
+        RootChain chain = build_root_chain(
+            &arena,
+            world,
+            &diags->items[i]
+        );
+        render_root_chain(&chain);
+    }
+    arena_destroy(&arena);
+}
+//@source src/consumers/root_chain_build.c
+#include <stddef.h>
+#include <stdint.h>
+#include "common/arena.h"
+#include "executor/world.h"
+#include "executor/step.h"
+#include "consumers/root_chain.h"
+#include "consumers/root_chain_role.h"
+#include "analyzer/diagnostic.h"
+#include "frontends/c/ast.h"   /* for ASTNode */
+/*
+ * Build a root-cause chain by walking the World timeline backwards
+ * from the diagnostic time.
+ *
+ * nodes[0] is the closest causal event to the diagnostic.
+ */
+RootChain build_root_chain(
+    Arena *arena,
+    const World *world_tail,
+    const Diagnostic *diag
+)
+{
+    RootChain chain = {0};
+    chain.diagnostic_id = diag->id;
+    /* ----------------------------------------
+     * First pass: count causal steps
+     * ---------------------------------------- */
+    size_t count = 0;
+    for (const World *w = world_tail; w; w = w->prev) {
+        if (w->time > diag->time)
+            continue;
+        if (!w->step)
+            continue;
+        count++;
+    }
+    if (count == 0)
+        return chain;
+    /* ----------------------------------------
+     * Allocate nodes
+     * ---------------------------------------- */
+    RootChainNode *nodes = arena_alloc(arena, count * sizeof(*nodes));
+    if (!nodes)
+        return chain;
+    /* ----------------------------------------
+     * Second pass: populate nodes
+     * ---------------------------------------- */
+    size_t i = 0;
+    for (const World *w = world_tail; w; w = w->prev) {
+        if (w->time > diag->time)
+            continue;
+        const Step *s = w->step;
+        if (!s)
+            continue;
+        RootChainNode *n = &nodes[i++];
+        n->time = w->time;
+        n->step = s->kind;
+        /* Derive AST id from origin */
+        if (s->origin) {
+            const struct ASTNode *ast = (const struct ASTNode *)s->origin;
+            n->ast_id = ast->id;
+        } else {
+            n->ast_id = 0;
+        }
+        /* Derive scope id conservatively */
+        switch (s->kind) {
+            case STEP_ENTER_SCOPE:
+            case STEP_EXIT_SCOPE:
+                n->scope_id = s->info;
+                break;
+            default:
+                n->scope_id = diag->scope_id;
+                break;
+        }
+        n->role = ROOT_ROLE_WITNESS;
+    }
+    chain.nodes = nodes;
+    chain.count = i;
+    /* ----------------------------------------
+     * Assign semantic roles
+     * ---------------------------------------- */
+    assign_root_chain_roles(&chain, diag->kind);
+    return chain;
+}
+//@source src/consumers/root_chain_render.c
+#include <stdio.h>
+#include "consumers/root_chain.h"
+#include "executor/step.h"
+#include "analyzer/diagnostic_id.h"
+static const char *role_str(RootRole r)
+{
+    switch (r) {
+        case ROOT_ROLE_CAUSE:      return "CAUSE";
+        case ROOT_ROLE_AMPLIFIER: return "AMPLIFIER";
+        case ROOT_ROLE_WITNESS:   return "WITNESS";
+        case ROOT_ROLE_SUPPRESSOR:return "SUPPRESSOR";
+        default:                  return "?";
+    }
+}
+void render_root_chain(const RootChain *chain)
+{
+    printf("\nROOT CAUSE CHAIN (diag=");
+    diagnostic_id_render(chain->diagnostic_id);
+    printf(")\n");
+    printf("----------------------------\n");
+    for (size_t i = 0; i < chain->count; i++) {
+        const RootChainNode *n = &chain->nodes[i];
+        printf(
+            "[t=%llu] %-11s step=%s ast=%llu scope=%llu\n",
+            (unsigned long long)n->time,
+            role_str(n->role),
+            step_kind_str(n->step),
+            (unsigned long long)n->ast_id,
+            (unsigned long long)n->scope_id
+        );
+    }
+}
+//@source src/consumers/root_chain_role.c
+#include "consumers/root_chain.h"
+#include "analyzer/diagnostic.h"
+/*
+ * Assign semantic roles based on diagnostic kind and causal distance.
+ *
+ * nodes[0] is the closest cause to the diagnostic.
+ */
+void assign_root_chain_roles(RootChain *chain, DiagnosticKind kind)
+{
+    if (!chain || chain->count == 0)
+        return;
+    for (size_t i = 0; i < chain->count; i++) {
+        RootChainNode *n = &chain->nodes[i];
+        if (i == 0) {
+            /* Closest event to diagnostic */
+            n->role = ROOT_ROLE_CAUSE;
+            continue;
+        }
+        switch (kind) {
+            case DIAG_USE_BEFORE_DECLARE:
+            case DIAG_REDECLARATION:
+            case DIAG_SHADOWING:
+                if (n->step == STEP_DECLARE ||
+                    n->step == STEP_USE) {
+                    n->role = ROOT_ROLE_AMPLIFIER;
+                } else {
+                    n->role = ROOT_ROLE_WITNESS;
+                }
+                break;
+            default:
+                n->role = ROOT_ROLE_WITNESS;
+                break;
+        }
+    }
+}
+//@source src/consumers/run_probe.c
+#include "consumers/run_descriptor.h"
+#include "consumers/run_contract.h"
+#include <sys/stat.h>
+static int file_exists(const char *path)
+{
+    struct stat st;
+    return path && stat(path, &st) == 0;
+}
+int run_probe(const RunDescriptor *rd)
+{
+    if (!rd)
+        return 1;
+    if (LIMINAL_RUN_CONTRACT.require_meta &&
+        !file_exists(rd->meta_path))
+        return 2;
+    if (LIMINAL_RUN_CONTRACT.require_diagnostics &&
+        !file_exists(rd->diagnostics_path))
+        return 3;
+    if (!LIMINAL_RUN_CONTRACT.allow_missing_timeline &&
+        !file_exists(rd->timeline_path))
+        return 4;
+    return 0;
+}
+//@source src/consumers/run_validate.c
+#include "consumers/run_artifact.h"
+int validate_run(const RunArtifact *r)
+{
+    if (!r)
+        return 1;
+    /* diagnostics time monotonic */
+    for (size_t i = 1; i < r->diagnostics.count; i++) {
+        if (r->diagnostics.items[i].time <
+            r->diagnostics.items[i - 1].time)
+            return 2;
+    }
+    /* timeline monotonic */
+    for (size_t i = 1; i < r->timeline_count; i++) {
+        if (r->timeline[i].time <
+            r->timeline[i - 1].time)
+            return 3;
+    }
+    return 0;
+}
+//@source src/consumers/scope_align.c
+#include "consumers/scope_alignment.h"
+#include "consumers/scope_signature.h"
+size_t scope_align(
+    const ScopeGraph *a,
+    const ScopeGraph *b,
+    ScopeAlignment *out,
+    size_t cap
+)
+{
+    size_t count = 0;
+    /* Removed / unchanged */
+    for (size_t i = 0; i < a->count && count < cap; i++) {
+        uint64_t sig_a = scope_signature(&a->nodes[i]);
+        int found = 0;
+        for (size_t j = 0; j < b->count; j++) {
+            if (sig_a == scope_signature(&b->nodes[j])) {
+                found = 1;
+                break;
+            }
+        }
+        out[count++] = (ScopeAlignment){
+            .old_sig = sig_a,
+            .new_sig = found ? sig_a : 0,
+            .kind = found ? SCOPE_UNCHANGED : SCOPE_REMOVED
+        };
+    }
+    /* Added */
+    for (size_t j = 0; j < b->count && count < cap; j++) {
+        uint64_t sig_b = scope_signature(&b->nodes[j]);
+        int found = 0;
+        for (size_t i = 0; i < a->count; i++) {
+            if (sig_b == scope_signature(&a->nodes[i])) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            out[count++] = (ScopeAlignment){
+                .old_sig = 0,
+                .new_sig = sig_b,
+                .kind = SCOPE_ADDED
+            };
+        }
+    }
+    return count;
+}
+//@source src/consumers/scope_align_render.c
+#include <stdio.h>
+#include "consumers/scope_alignment.h"
+static const char *scope_kind_str(ScopeChangeKind k)
+{
+    switch (k) {
+    case SCOPE_ADDED:    return "ADDED";
+    case SCOPE_REMOVED:  return "REMOVED";
+    case SCOPE_MOVED:    return "MOVED";
+    case SCOPE_SPLIT:    return "SPLIT";
+    case SCOPE_MERGED:   return "MERGED";
+    default:             return "UNCHANGED";
+    }
+}
+void scope_align_render(
+    const ScopeAlignment *a,
+    size_t count,
+    FILE *out
+)
+{
+    fprintf(out,
+        "%-18s %-18s %-10s\n",
+        "OLD_SIG", "NEW_SIG", "CHANGE"
+    );
+    for (size_t i = 0; i < count; i++) {
+        fprintf(
+            out,
+            "%016llx %016llx %-10s\n",
+            (unsigned long long)a[i].old_sig,
+            (unsigned long long)a[i].new_sig,
+            scope_kind_str(a[i].kind)
+        );
+    }
+}
+//@source src/consumers/scope_graph_extract.c
+#include "consumers/scope_graph_extract.h"
+#include "executor/step.h"
+#include "executor/scope.h"  
+#include <stdlib.h>
+ScopeGraph scope_graph_extract(
+    const struct World *head
+)
+{
+    ScopeNode *buf = calloc(128, sizeof(ScopeNode));
+    size_t count = 0;
+    const struct World *w = head;
+    while (w) {
+        if (w->step) {
+            if (w->step->kind == STEP_ENTER_SCOPE) {
+                ScopeNode *n = &buf[count++];
+                n->scope_id   = w->step->info;
+                n->parent_id  =
+                    w->prev && w->prev->active_scope
+                        ? w->prev->active_scope->id
+                        : 0;
+                n->enter_time = w->time;
+                n->exit_time  = UINT64_MAX;
+            }
+            if (w->step->kind == STEP_EXIT_SCOPE) {
+                uint64_t sid = w->step->info;
+                for (size_t i = count; i > 0; i--) {
+                    if (buf[i - 1].scope_id == sid &&
+                        buf[i - 1].exit_time == UINT64_MAX) {
+                        buf[i - 1].exit_time = w->time;
+                        break;
+                    }
+                }
+            }
+        }
+        w = w->next;
+    }
+    return (ScopeGraph){
+        .nodes = buf,
+        .count = count
+    };
+}
+//@source src/consumers/scope_signature.c
+#include "consumers/scope_signature.h"
+uint64_t scope_signature(const ScopeNode *n)
+{
+    /*
+     * Stable semantic signature:
+     *
+     * [ parent_id | enter_time | exit_time ]
+     *
+     * Scope ID deliberately excluded.
+     */
+    return
+        (n->parent_id << 48) ^
+        (n->enter_time << 24) ^
+        (n->exit_time);
+}
+//@source src/consumers/semantic_cause_diff.c
+#include "consumers/semantic_cause_diff.h"
+CauseChangeKind classify_cause(
+    const DiagnosticAnchor *a,
+    const DiagnosticAnchor *b,
+    uint32_t *old_step,
+    uint32_t *new_step
+)
+{
+    if (!a && b) {
+        *old_step = 0;
+        *new_step = b->cause.step_kind;
+        return CAUSE_NEW_STEP;
+    }
+    if (a && !b) {
+        *old_step = a->cause.step_kind;
+        *new_step = 0;
+        return CAUSE_STEP_REMOVED;
+    }
+    if (a && b && a->cause.step_kind != b->cause.step_kind) {
+        *old_step = a->cause.step_kind;
+        *new_step = b->cause.step_kind;
+        return CAUSE_STEP_MOVED;
+    }
+    return CAUSE_NONE;
+}
+//@source src/consumers/semantic_cause_render.c
+#include <stdio.h>
+#include "consumers/semantic_cause_diff.h"
+static const char *cause_str(CauseChangeKind k)
+{
+    switch (k) {
+    case CAUSE_NEW_STEP:     return "NEW_STEP";
+    case CAUSE_STEP_REMOVED: return "REMOVED_STEP";
+    case CAUSE_STEP_MOVED:   return "STEP_CHANGED";
+    default:                 return "UNCHANGED";
+    }
+}
+void semantic_cause_render(
+    const SemanticCauseDiff *d,
+    size_t count,
+    FILE *out
+)
+{
+    fprintf(out,
+        "%-10s %-18s %-10s %-10s %-12s\n",
+        "DIFF", "ID", "OLD_STEP", "NEW_STEP", "CAUSE"
+    );
+    for (size_t i = 0; i < count; i++) {
+        fprintf(
+            out,
+            "%-10d %016llx %-10u %-10u %-12s\n",
+            d[i].base.kind,
+            (unsigned long long)d[i].base.id.value,
+            d[i].old_step,
+            d[i].new_step,
+            cause_str(d[i].cause)
+        );
+    }
+}
+//@source src/consumers/semantic_diff.c
+#include "consumers/semantic_diff.h"
+/*
+ * semantic_diff
+ *
+ * Identity axis: DiagnosticId
+ * Temporal axis: time
+ */
+size_t semantic_diff(
+    const DiagnosticArtifact *old_run,
+    const DiagnosticArtifact *new_run,
+    SemanticDiff *out,
+    size_t cap
+)
+{
+    size_t count = 0;
+    if (!out || cap == 0)
+        return 0;
+    /* ---- REMOVED / UNCHANGED / MOVED ---- */
+    for (size_t i = 0; old_run && i < old_run->count; i++) {
+        const Diagnostic *d_old = &old_run->items[i];
+        int found = 0;
+        for (size_t j = 0; new_run && j < new_run->count; j++) {
+            const Diagnostic *d_new = &new_run->items[j];
+            if (d_new->id.value == d_old->id.value) {
+                found = 1;
+                if (count >= cap)
+                    return count;
+                if (d_new->time == d_old->time) {
+                    out[count++] = (SemanticDiff){
+                        .kind = SEMDIFF_UNCHANGED,
+                        .id = d_old->id,
+                        .old_time = d_old->time,
+                        .new_time = d_new->time
+                    };
+                } else {
+                    out[count++] = (SemanticDiff){
+                        .kind = SEMDIFF_MOVED,
+                        .id = d_old->id,
+                        .old_time = d_old->time,
+                        .new_time = d_new->time
+                    };
+                }
+                break;
+            }
+        }
+        if (!found && count < cap) {
+            out[count++] = (SemanticDiff){
+                .kind = SEMDIFF_REMOVED,
+                .id = d_old->id,
+                .old_time = d_old->time,
+                .new_time = 0
+            };
+        }
+    }
+    /* ---- ADDED ---- */
+    for (size_t i = 0; new_run && i < new_run->count; i++) {
+        const Diagnostic *d_new = &new_run->items[i];
+        int found = 0;
+        for (size_t j = 0; old_run && j < old_run->count; j++) {
+            if (old_run->items[j].id.value == d_new->id.value) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found && count < cap) {
+            out[count++] = (SemanticDiff){
+                .kind = SEMDIFF_ADDED,
+                .id = d_new->id,
+                .old_time = 0,
+                .new_time = d_new->time
+            };
+        }
+    }
+    return count;
+}
+//@source src/consumers/semantic_diff_render.c
+#include <stdio.h>
+#include "consumers/semantic_diff.h"
+static const char *kind_str(SemanticDiffKind k)
+{
+    switch (k) {
+    case SEMDIFF_ADDED:     return "ADDED";
+    case SEMDIFF_REMOVED:   return "REMOVED";
+    case SEMDIFF_MOVED:     return "MOVED";
+    case SEMDIFF_UNCHANGED: return "UNCHANGED";
+    default:                return "UNKNOWN";
+    }
+}
+void semantic_diff_render(
+    const SemanticDiff *diffs,
+    size_t count,
+    FILE *out
+)
+{
+    fprintf(out,
+        "%-10s %-18s %-10s %-10s\n",
+        "KIND", "ID", "OLD", "NEW"
+    );
+    fprintf(out,
+        "%-10s %-18s %-10s %-10s\n",
+        "----------",
+        "------------------",
+        "----------",
+        "----------"
+    );
+    for (size_t i = 0; i < count; i++) {
+        fprintf(
+            out,
+            "%-10s %016llx %-10llu %-10llu\n",
+            kind_str(diffs[i].kind),
+            (unsigned long long)diffs[i].id.value,
+            (unsigned long long)diffs[i].old_time,
+            (unsigned long long)diffs[i].new_time
+        );
+    }
+}
 //@source src/consumers/timeline_emit.c
 #include <stdio.h>
 #include "consumers/timeline_emit.h"
@@ -2737,6 +4218,33 @@ void emit_timeline(
         );
         w = w->next;
     }
+}
+//@source src/consumers/timeline_extract.c
+#include "consumers/timeline_extract.h"
+#include "executor/step.h"
+#include "frontends/c/ast.h"
+size_t timeline_extract(
+    const struct World *head,
+    TimelineEvent *out,
+    size_t cap
+)
+{
+    size_t count = 0;
+    const struct World *w = head;
+    while (w && count < cap) {
+        uint32_t ast_id = 0;
+        if (w->step && w->step->origin) {
+            const ASTNode *n = (const ASTNode *)w->step->origin;
+            ast_id = n->id;
+        }
+        out[count++] = (TimelineEvent){
+            .time = w->time,
+            .step_kind = w->step ? w->step->kind : 0,
+            .ast_id = ast_id
+        };
+        w = w->next;
+    }
+    return count;
 }
 //@source src/frontends/c/ast.c
 #include "frontends/c/ast.h"
@@ -3089,6 +4597,250 @@ static uint32_t parse_statement(ASTProgram *p, Lexer *lx)
     }
     return 0;
 }
+//@source src/commands/cmd_analyze.c
+#include <stdio.h>
+#include <stdlib.h>
+#include "common/arena.h"
+#include "executor/world.h"
+#include "analyzer/diagnostic.h"
+#include "consumers/root_chain.h"
+#include "consumers/root_chain_role.h"
+#include "consumers/convergence_map.h"
+#include "consumers/fix_surface.h"
+/* Forward declarations for render/build functions
+ * (because you only have .c files, no headers)
+ */
+void render_convergence(const ConvergenceMap *m);
+void render_fix_surface(const FixSurface *fs);
+int build_convergence_map(
+    const DiagnosticArtifact *diags,
+    const RootChain *chains,
+    ConvergenceMap *out
+);
+FixSurface build_fix_surface(const ConvergenceMap *map);
+/*
+ * cmd_analyze
+ *
+ * Stage 7:
+ *  - derive diagnostics
+ *  - derive root chains (ephemeral)
+ *  - derive convergence
+ *  - derive minimal fix surface
+ *
+ * NO mutation
+ * NO persistence
+ * NO cross-stage storage
+ */
+int cmd_analyze(const World *world)
+{
+    if (!world) {
+        fprintf(stderr, "analyze: no world provided\n");
+        return 1;
+    }
+    /* --- Diagnostics --- */
+    DiagnosticArtifact diags =
+        analyze_diagnostics((World *)world);
+    if (diags.count == 0) {
+        printf("No diagnostics.\n");
+        return 0;
+    }
+    /* --- Arena for derived artifacts --- */
+    Arena arena;
+    arena_init(&arena, 32 * 1024);
+    /* --- Root chains --- */
+    RootChain *chains =
+        arena_alloc(&arena, diags.count * sizeof(RootChain));
+    for (size_t i = 0; i < diags.count; i++) {
+        chains[i] = build_root_chain(
+            &arena,
+            world,
+            &diags.items[i]
+        );
+        assign_root_chain_roles(
+            &chains[i],
+            diags.items[i].kind
+        );
+    }
+    /* --- Convergence --- */
+    ConvergenceMap cmap = {0};
+    build_convergence_map(
+        &diags,
+        chains,
+        &cmap
+    );
+    render_convergence(&cmap);
+    /* --- Minimal fix surface --- */
+    FixSurface fs = build_fix_surface(&cmap);
+    render_fix_surface(&fs);
+    arena_destroy(&arena);
+    return 0;
+}
+//@source src/commands/cmd_diff.c
+#include <stdio.h>
+#include <string.h>
+#include "consumers/run_descriptor.h"
+#include "consumers/run_artifact.h"
+#include "consumers/semantic_diff.h"
+int load_run(const RunDescriptor *, RunArtifact *);
+void semantic_diff_render(
+    const SemanticDiff *, size_t, FILE *
+);
+int cmd_diff(int argc, char **argv)
+{
+    if (argc != 2) {
+        fprintf(stderr,
+            "usage: liminal diff <run-A> <run-B>\n");
+        return 1;
+    }
+    RunDescriptor a = {
+        .root_dir = argv[0],
+        .run_id = argv[0],
+        .meta_path = ".liminal/meta.json",
+        .diagnostics_path = ".liminal/diagnostics.ndjson",
+        .timeline_path = ".liminal/timeline.ndjson"
+    };
+    RunDescriptor b = {
+        .root_dir = argv[1],
+        .run_id = argv[1],
+        .meta_path = ".liminal/meta.json",
+        .diagnostics_path = ".liminal/diagnostics.ndjson",
+        .timeline_path = ".liminal/timeline.ndjson"
+    };
+    RunArtifact ra = {0};
+    RunArtifact rb = {0};
+    if (load_run(&a, &ra) != 0 ||
+        load_run(&b, &rb) != 0) {
+        fprintf(stderr, "failed to load runs\n");
+        return 1;
+    }
+    SemanticDiff diffs[256];
+    size_t n = semantic_diff(
+        &ra.diagnostics,
+        &rb.diagnostics,
+        diffs,
+        256
+    );
+    semantic_diff_render(diffs, n, stdout);
+    return 0;
+}
+//@source src/commands/cmd_policy.c
+#include <stdio.h>
+#include "commands/cmd_policy.h"
+#include "policy/policy.h"
+int
+cmd_apply_policy(
+    const Policy *policy,
+    const DiagnosticArtifact *diagnostics
+)
+{
+    PolicyDecision d = policy_evaluate(policy, diagnostics);
+    switch (d) {
+    case POLICY_ALLOW:
+        return 0;
+    case POLICY_WARN:
+        fprintf(stderr, "policy warning\n");
+        return 0;
+    case POLICY_DENY:
+        fprintf(stderr, "policy denied execution\n");
+        return 1;
+    }
+    return 0;
+}
+//@source src/commands/command_dispatch.c
+#include <stdio.h>
+#include <string.h>
+#include "command.h"
+int dispatch_command(
+    int argc,
+    char **argv,
+    const CommandSpec *commands,
+    int command_count
+) {
+    if (argc < 1) {
+        fprintf(stderr, "error: missing command\n");
+        return 1;
+    }
+    const char *cmd = argv[0];
+    for (int i = 0; i < command_count; i++) {
+        if (strcmp(cmd, commands[i].name) == 0) {
+            if (argc - 1 < commands[i].min_args) {
+                fprintf(stderr, "error: missing arguments for '%s'\n", cmd);
+                return 1;
+            }
+            return commands[i].handler(argc - 1, argv + 1);
+        }
+    }
+    fprintf(stderr, "error: unknown command '%s'\n", cmd);
+    return 1;
+}
+//@source src/policy/default_policy.c
+#include "policy/default_policy.h"
+#include "policy/policy.h"
+static const PolicyRule DEFAULT_RULES[] = {
+    /* Hard denies */
+    { DIAG_USE_BEFORE_DECLARE, 0, 1 },
+    { DIAG_REDECLARATION,      0, 1 },
+    /* Soft limits */
+    { DIAG_SHADOWING,         16, 0 }
+};
+const Policy LIMINAL_DEFAULT_POLICY = {
+    .deny_kind = {
+        [DIAG_USE_BEFORE_DECLARE] = 1,
+        [DIAG_REDECLARATION]      = 1
+    },
+    .max_by_kind = {
+        [DIAG_SHADOWING] = 16
+    },
+    .max_total = 64
+};
+//@source src/policy/policy.c
+#include "policy/policy.h"
+PolicyDecision
+policy_evaluate(
+    const Policy *policy,
+    const DiagnosticArtifact *diagnostics
+)
+{
+    if (!policy || !diagnostics) {
+        return POLICY_ALLOW;
+    }
+    size_t by_kind[DIAG_KIND_MAX] = {0};
+    for (size_t i = 0; i < diagnostics->count; i++) {
+        DiagnosticKind k = diagnostics->items[i].kind;
+        /* Deny rule */
+        if (policy->deny_kind[k]) {
+            return POLICY_DENY;
+        }
+        by_kind[k]++;
+        /* Per-kind cap */
+        if (policy->max_by_kind[k] &&
+            by_kind[k] > policy->max_by_kind[k]) {
+            return POLICY_DENY;
+        }
+    }
+    /* Total cap */
+    if (policy->max_total &&
+        diagnostics->count > policy->max_total) {
+        return POLICY_DENY;
+    }
+    return POLICY_ALLOW;
+}
+//@source src/policy/policy_default.c
+#include "policy/policy.h"
+#include <string.h>
+Policy policy_default(void)
+{
+    Policy p;
+    memset(&p, 0, sizeof(p));
+    /* hard errors */
+    p.deny_kind[DIAG_USE_BEFORE_DECLARE] = 1;
+    p.deny_kind[DIAG_REDECLARATION]      = 1;
+    /* warnings allowed but capped */
+    p.max_by_kind[DIAG_SHADOWING] = 16;
+    /* global budget */
+    p.max_total = 64;
+    return p;
+}
 //@source src/main.c
 #include <stdio.h>
 #include <string.h>
@@ -3107,8 +4859,10 @@ static uint32_t parse_statement(ASTProgram *p, Lexer *lx)
 #include "analyzer/artifact_emit.h"
 #include "frontends/c/ast.h"
 #include "frontends/c/frontend.h"
+#include "commands/command.h"
 #include "commands/cmd_analyze.h"
 #include "commands/cmd_policy.h"
+#include "commands/cmd_diff.h"
 #include "consumers/timeline_emit.h"
 #include "policy/default_policy.h"
 /*
@@ -3220,23 +4974,21 @@ static int cmd_run(int argc, char **argv)
     ast_program_free(ast);
     return 0;
 }
+static const CommandSpec COMMANDS[] = {
+    { "run",     0, cmd_run     },
+    { "analyze", 1, cmd_analyze },
+    { "diff",    2, cmd_diff    },
+};
 int main(int argc, char **argv)
 {
     if (argc < 2) {
         print_usage(argv[0]);
         return 0;
     }
-    if (strcmp(argv[1], "run") == 0) {
-        return cmd_run(argc - 2, argv + 2);
-    }
-    if (strcmp(argv[1], "analyze") == 0) {
-        if (argc < 3) {
-            fprintf(stderr, "error: missing artifact path\n");
-            return 1;
-        }
-        return cmd_analyze(argv[2]);
-    }
-    fprintf(stderr, "unknown command: %s\n", argv[1]);
-    print_usage(argv[0]);
-    return 1;
+    return dispatch_command(
+        argc - 1,
+        argv + 1,
+        COMMANDS,
+        sizeof(COMMANDS) / sizeof(COMMANDS[0])
+    );
 }

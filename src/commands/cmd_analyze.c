@@ -1,128 +1,100 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+
+#include "common/arena.h"
+#include "executor/world.h"
 
 #include "analyzer/diagnostic.h"
-#include "analyzer/diagnostic_serialize.h"
 
-#include "consumers/diagnostic_render.h"
-#include "consumers/diagnostic_stats.h"
-#include "consumers/diagnostic_validate.h"
+#include "consumers/root_chain.h"
+#include "consumers/root_chain_role.h"
+#include "consumers/convergence_map.h"
+#include "consumers/fix_surface.h"
+
+/* Forward declarations for render/build functions
+ * (because you only have .c files, no headers)
+ */
+void render_convergence(const ConvergenceMap *m);
+void render_fix_surface(const FixSurface *fs);
+
+int build_convergence_map(
+    const DiagnosticArtifact *diags,
+    const RootChain *chains,
+    ConvergenceMap *out
+);
+
+FixSurface build_fix_surface(const ConvergenceMap *map);
 
 /*
- * Offline artifact analysis entry point
+ * cmd_analyze
  *
- * Stage discipline:
- *  - consumes artifacts ONLY
- *  - no execution
- *  - no analysis
- *  - no allocation in consumers
+ * Stage 7:
+ *  - derive diagnostics
+ *  - derive root chains (ephemeral)
+ *  - derive convergence
+ *  - derive minimal fix surface
+ *
+ * NO mutation
+ * NO persistence
+ * NO cross-stage storage
  */
-
-#define MAX_DIAGNOSTICS 256
-
-static DiagnosticArtifact
-load_diagnostics(const char *path)
+int cmd_analyze(const World *world)
 {
-    Diagnostic *buf = calloc(MAX_DIAGNOSTICS, sizeof(Diagnostic));
-    size_t count = 0;
-
-    if (!buf) {
-        fprintf(stderr, "error: out of memory\n");
-        return (DiagnosticArtifact){0};
+    if (!world) {
+        fprintf(stderr, "analyze: no world provided\n");
+        return 1;
     }
 
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        fprintf(stderr, "error: failed to open %s\n", path);
-        free(buf);
-        return (DiagnosticArtifact){0};
+    /* --- Diagnostics --- */
+
+    DiagnosticArtifact diags =
+        analyze_diagnostics((World *)world);
+
+    if (diags.count == 0) {
+        printf("No diagnostics.\n");
+        return 0;
     }
 
-    while (count < MAX_DIAGNOSTICS) {
-        Diagnostic d;
-        memset(&d, 0, sizeof(d));
+    /* --- Arena for derived artifacts --- */
 
-        if (!diagnostic_deserialize_line(f, &d))
-            break;
+    Arena arena;
+    arena_init(&arena, 32 * 1024);
 
-        buf[count++] = d;
+    /* --- Root chains --- */
+
+    RootChain *chains =
+        arena_alloc(&arena, diags.count * sizeof(RootChain));
+
+    for (size_t i = 0; i < diags.count; i++) {
+        chains[i] = build_root_chain(
+            &arena,
+            world,
+            &diags.items[i]
+        );
+
+        assign_root_chain_roles(
+            &chains[i],
+            diags.items[i].kind
+        );
     }
 
-    fclose(f);
+    /* --- Convergence --- */
 
-    return (DiagnosticArtifact){
-        .items = buf,
-        .count = count
-    };
-}
+    ConvergenceMap cmap = {0};
 
-int cmd_analyze(const char *artifact_dir)
-{
-    char path[512];
-
-    snprintf(
-        path,
-        sizeof(path),
-        "%s/diagnostics.ndjson",
-        artifact_dir
+    build_convergence_map(
+        &diags,
+        chains,
+        &cmap
     );
 
-    DiagnosticArtifact a = load_diagnostics(path);
-    if (!a.items)
-        return 1;
+    render_convergence(&cmap);
 
-    /* ------------------------------------------------------------
-     * VALIDATION GATE
-     * ------------------------------------------------------------ */
+    /* --- Minimal fix surface --- */
 
-    ValidationIssue issues[64];
-    size_t issue_count =
-        validate_diagnostics(&a, issues, 64);
+    FixSurface fs = build_fix_surface(&cmap);
+    render_fix_surface(&fs);
 
-    if (issue_count > 0) {
-        printf("!! Diagnostic validation failed (%zu issues)\n",
-               issue_count);
-
-        for (size_t i = 0; i < issue_count; i++) {
-            printf(
-                "  issue=%d id=%016llx\n",
-                issues[i].kind,
-                (unsigned long long)issues[i].id.value
-            );
-        }
-
-        free(a.items);
-        return 1;
-    }
-
-    /* ------------------------------------------------------------
-     * STATS
-     * ------------------------------------------------------------ */
-
-    DiagnosticStats stats;
-    diagnostic_stats_compute(&a, &stats);
-
-    printf("\n== Diagnostic Stats ==\n");
-    printf("total: %zu\n", stats.total);
-
-    for (size_t i = 0; i < DIAG_KIND_MAX; i++) {
-        if (stats.by_kind[i]) {
-            printf(
-                "  %s: %zu\n",
-                diagnostic_kind_name((DiagnosticKind)i),
-                stats.by_kind[i]
-            );
-        }
-    }
-
-    /* ------------------------------------------------------------
-     * RENDER
-     * ------------------------------------------------------------ */
-
-    printf("\n== Diagnostics ==\n");
-    diagnostic_render_terminal(&a, stdout);
-
-    free(a.items);
+    arena_destroy(&arena);
     return 0;
 }

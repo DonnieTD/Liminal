@@ -1,8 +1,14 @@
 build/commands/cmd_analyze.o: src/commands/cmd_analyze.c \
-  src/analyzer/diagnostic.h src/analyzer/source_anchor.h \
-  src/analyzer/diagnostic_id.h src/analyzer/constraint.h \
-  src/analyzer/diagnostic_serialize.h src/consumers/diagnostic_render.h \
-  src/consumers/diagnostic_stats.h src/consumers/diagnostic_validate.h
+  src/common/arena.h src/executor/world.h src/analyzer/diagnostic.h \
+  src/analyzer/source_anchor.h src/analyzer/diagnostic_id.h \
+  src/analyzer/constraint.h src/consumers/root_chain.h \
+  src/executor/step.h src/consumers/root_chain_role.h \
+  src/consumers/convergence_map.h src/consumers/cause_key.h \
+  src/consumers/fix_surface.h
+
+src/common/arena.h:
+
+src/executor/world.h:
 
 src/analyzer/diagnostic.h:
 
@@ -12,10 +18,14 @@ src/analyzer/diagnostic_id.h:
 
 src/analyzer/constraint.h:
 
-src/analyzer/diagnostic_serialize.h:
+src/consumers/root_chain.h:
 
-src/consumers/diagnostic_render.h:
+src/executor/step.h:
 
-src/consumers/diagnostic_stats.h:
+src/consumers/root_chain_role.h:
 
-src/consumers/diagnostic_validate.h:
+src/consumers/convergence_map.h:
+
+src/consumers/cause_key.h:
+
+src/consumers/fix_surface.h:

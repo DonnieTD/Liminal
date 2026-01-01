@@ -15,12 +15,16 @@ typedef struct DiagnosticId {
 
 /*
  * Derive a stable diagnostic identity from a constraint.
- *
- * PURE:
- *  - no allocation
- *  - no globals
- *  - deterministic
  */
 DiagnosticId diagnostic_id_from_constraint(const Constraint *c);
+
+/*
+ * Render a diagnostic id (human-readable, stable).
+ *
+ * NOTE:
+ *  - Formatting is centralized here
+ *  - Consumers must not interpret DiagnosticId internals
+ */
+void diagnostic_id_render(DiagnosticId id);
 
 #endif /* LIMINAL_DIAGNOSTIC_ID_H */

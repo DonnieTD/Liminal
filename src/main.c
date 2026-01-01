@@ -19,8 +19,10 @@
 #include "frontends/c/ast.h"
 #include "frontends/c/frontend.h"
 
+#include "commands/command.h"
 #include "commands/cmd_analyze.h"
 #include "commands/cmd_policy.h"
+#include "commands/cmd_diff.h"
 
 #include "consumers/timeline_emit.h"
 
@@ -157,26 +159,23 @@ static int cmd_run(int argc, char **argv)
     return 0;
 }
 
+static const CommandSpec COMMANDS[] = {
+    { "run",     0, cmd_run     },
+    { "analyze", 1, cmd_analyze },
+    { "diff",    2, cmd_diff    },
+};
+
 int main(int argc, char **argv)
 {
     if (argc < 2) {
         print_usage(argv[0]);
         return 0;
     }
-
-    if (strcmp(argv[1], "run") == 0) {
-        return cmd_run(argc - 2, argv + 2);
-    }
-
-    if (strcmp(argv[1], "analyze") == 0) {
-        if (argc < 3) {
-            fprintf(stderr, "error: missing artifact path\n");
-            return 1;
-        }
-        return cmd_analyze(argv[2]);
-    }
-
-    fprintf(stderr, "unknown command: %s\n", argv[1]);
-    print_usage(argv[0]);
-    return 1;
+    
+    return dispatch_command(
+        argc - 1,
+        argv + 1,
+        COMMANDS,
+        sizeof(COMMANDS) / sizeof(COMMANDS[0])
+    );
 }

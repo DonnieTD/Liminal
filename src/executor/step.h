@@ -6,59 +6,87 @@
 /*
  * StepKind
  *
- * Enumerates the semantic reason *why* a World transition occurred.
+ * Enumerates semantic events in execution time.
  *
- * IMPORTANT:
- *  - StepKinds do NOT execute logic
- *  - They describe causality, not behavior
- *  - Analysis code relies on these being stable
+ * A Step answers:
+ *   "What happened at this moment?"
+ *
+ * It does NOT encode:
+ *   - control flow
+ *   - data flow
+ *   - ownership
+ *
+ * Those are derived later.
  */
 typedef enum StepKind {
     STEP_UNKNOWN = 0,
 
-    /* Structural */
+    /* Program structure */
     STEP_ENTER_PROGRAM,
     STEP_EXIT_PROGRAM,
-
     STEP_ENTER_FUNCTION,
     STEP_EXIT_FUNCTION,
 
-
-    /* Statements */
+    /* Control flow */
+    STEP_CALL,
     STEP_RETURN,
 
-    /* Existing (unused yet) */
+    /* Scopes */
     STEP_ENTER_SCOPE,
     STEP_EXIT_SCOPE,
-    STEP_CALL,
+
+    /* Variables */
     STEP_DECLARE,
     STEP_USE,
     STEP_ASSIGN,
+
+    /* Memory (future) */
     STEP_LOAD,
     STEP_STORE,
+
+    /* Catch-all */
     STEP_OTHER
 } StepKind;
 
 /*
  * Step
  *
- * A Step represents the semantic *cause* of a World transition.
+ * A Step is a single semantic cause marker.
  *
- * Steps:
- *  - do NOT execute logic
- *  - do NOT own memory
- *  - are immutable once created
+ * Invariants:
+ *  - Immutable once attached to a World
+ *  - Owned by the Universe
+ *  - Does NOT own memory
  *
- * Interpretation of `info` depends on StepKind:
- *  - ENTER / EXIT_SCOPE → scope id
- *  - DECLARE             → variable id
- *  - others              → kind-specific later
+ * Interpretation rules:
+ *  - `origin` is opaque (usually ASTNode*)
+ *  - `info` meaning depends on `kind`
+ *
+ * info semantics by kind:
+ *  - STEP_ENTER_SCOPE / EXIT_SCOPE → scope_id
+ *  - STEP_DECLARE / STEP_USE       → storage_id (or UINT64_MAX)
+ *  - otherwise                     → unused (0)
  */
 typedef struct Step {
     StepKind kind;
-    void    *origin;   // <-- opaque pointer
-    uint64_t info;     // <-- kind-specific ID
+    void    *origin;
+    uint64_t info;
 } Step;
 
+/*
+ * Canonical stringification.
+ *
+ * Executor-owned.
+ * Must stay stable for tooling.
+ */
+const char *step_kind_name(StepKind kind);
+
+/*
+ * Compatibility helper
+ */
+static inline const char *step_kind_str(StepKind kind)
+{
+    return step_kind_name(kind);
+}
 
 #endif /* LIMINAL_STEP_H */

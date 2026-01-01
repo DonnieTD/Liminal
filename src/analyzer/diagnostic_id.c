@@ -1,10 +1,13 @@
+#include <stdio.h>
+#include <inttypes.h>
+
 #include "analyzer/diagnostic_id.h"
+#include "analyzer/constraint.h"
 
 /*
- * Stable identity derivation.
+ * diagnostic_id_from_constraint
  *
- * This is NOT a hash.
- * This is semantic composition.
+ * Stable semantic identity for a diagnostic.
  */
 DiagnosticId diagnostic_id_from_constraint(const Constraint *c)
 {
@@ -13,19 +16,17 @@ DiagnosticId diagnostic_id_from_constraint(const Constraint *c)
     if (!c)
         return id;
 
-    /*
-     * Bit layout (documented, stable):
-     *
-     * [ 16 bits kind ][ 16 bits scope ][ 32 bits time ]
-     *
-     * storage_id intentionally excluded for now:
-     *   - unstable across refactors
-     *   - can be added later if needed
-     */
-    id.value =
-        ((uint64_t)c->kind     << 48) |
-        ((uint64_t)c->scope_id << 32) |
-        (uint64_t)c->time;
+    /* Simple structural hash — stable across runs */
+    id.value ^= (uint64_t)c->kind;
+    id.value ^= (uint64_t)c->time << 16;
+    id.value ^= (uint64_t)c->scope_id << 32;
 
     return id;
+}
+
+
+
+void diagnostic_id_render(DiagnosticId id)
+{
+    printf("%016" PRIx64, id.value);
 }
