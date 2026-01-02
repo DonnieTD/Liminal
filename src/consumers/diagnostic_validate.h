@@ -1,4 +1,6 @@
-#pragma once
+#ifndef LIMINAL_CONSUMERS_DIAGNOSTIC_VALIDATE_H
+#define LIMINAL_CONSUMERS_DIAGNOSTIC_VALIDATE_H
+
 #include "analyzer/diagnostic.h"
 
 typedef enum {
@@ -16,3 +18,5 @@ size_t validate_diagnostics(
     ValidationIssue *out,
     size_t cap
 );
+
+#endif /* LIMINAL_CONSUMERS_DIAGNOSTIC_VALIDATE_H */

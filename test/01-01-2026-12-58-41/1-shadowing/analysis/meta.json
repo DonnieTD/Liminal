@@ -1,6 +1,0 @@
-{
-  "liminal_version": "0.5.3",
-  "run_id": "analysis",
-  "started_at": 1767265124,
-  "input": "src/samples/poc/1-shadowing.c"
-}

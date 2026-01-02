@@ -1,0 +1,448 @@
+On branch main
+Your branch is ahead of 'origin/main' by 1 commit.
+  (use "git push" to publish your local commits)
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   Contribute.md
+	modified:   Makefile
+	modified:   ReadMe.md
+	deleted:    artifacts/liminal_flat.min_final.c
+	deleted:    build/analyzer/artifact_emit.d
+	deleted:    build/analyzer/artifact_emit.o
+	deleted:    build/analyzer/constraint_declaration.d
+	deleted:    build/analyzer/constraint_declaration.o
+	deleted:    build/analyzer/constraint_diagnostic.d
+	deleted:    build/analyzer/constraint_diagnostic.o
+	deleted:    build/analyzer/constraint_engine.d
+	deleted:    build/analyzer/constraint_engine.o
+	deleted:    build/analyzer/constraint_scope.d
+	deleted:    build/analyzer/constraint_scope.o
+	deleted:    build/analyzer/constraint_variable.d
+	deleted:    build/analyzer/constraint_variable.o
+	deleted:    build/analyzer/diagnostic.d
+	deleted:    build/analyzer/diagnostic.o
+	deleted:    build/analyzer/diagnostic_dump.d
+	deleted:    build/analyzer/diagnostic_dump.o
+	deleted:    build/analyzer/diagnostic_id.d
+	deleted:    build/analyzer/diagnostic_id.o
+	deleted:    build/analyzer/diagnostic_project.d
+	deleted:    build/analyzer/diagnostic_project.o
+	deleted:    build/analyzer/diagnostic_serialize.d
+	deleted:    build/analyzer/diagnostic_serialize.o
+	deleted:    build/analyzer/lifetime.d
+	deleted:    build/analyzer/lifetime.o
+	deleted:    build/analyzer/trace.d
+	deleted:    build/analyzer/trace.o
+	deleted:    build/analyzer/use.d
+	deleted:    build/analyzer/use.o
+	deleted:    build/analyzer/validate.d
+	deleted:    build/analyzer/validate.o
+	deleted:    build/analyzer/variable_lifetime.d
+	deleted:    build/analyzer/variable_lifetime.o
+	deleted:    build/commands/cmd_analyze.d
+	deleted:    build/commands/cmd_analyze.o
+	deleted:    build/commands/cmd_diff.d
+	deleted:    build/commands/cmd_diff.o
+	deleted:    build/commands/cmd_policy.d
+	deleted:    build/commands/cmd_policy.o
+	deleted:    build/commands/command_dispatch.d
+	deleted:    build/commands/command_dispatch.o
+	deleted:    build/common/arena.d
+	deleted:    build/common/arena.o
+	deleted:    build/common/file.d
+	deleted:    build/common/file.o
+	deleted:    build/common/fs.d
+	deleted:    build/common/fs.o
+	deleted:    build/common/hashmap.d
+	deleted:    build/common/hashmap.o
+	deleted:    build/consumers/cause_key.d
+	deleted:    build/consumers/cause_key.o
+	deleted:    build/consumers/cause_key_extract.d
+	deleted:    build/consumers/cause_key_extract.o
+	deleted:    build/consumers/convergence_build.d
+	deleted:    build/consumers/convergence_build.o
+	deleted:    build/consumers/convergence_map.d
+	deleted:    build/consumers/convergence_map.o
+	deleted:    build/consumers/convergence_render.d
+	deleted:    build/consumers/convergence_render.o
+	deleted:    build/consumers/diagnostic_anchor.d
+	deleted:    build/consumers/diagnostic_anchor.o
+	deleted:    build/consumers/diagnostic_diff.d
+	deleted:    build/consumers/diagnostic_diff.o
+	deleted:    build/consumers/diagnostic_render.d
+	deleted:    build/consumers/diagnostic_render.o
+	deleted:    build/consumers/diagnostic_stats.d
+	deleted:    build/consumers/diagnostic_stats.o
+	deleted:    build/consumers/diagnostic_stats_emit.d
+	deleted:    build/consumers/diagnostic_stats_emit.o
+	deleted:    build/consumers/diagnostic_timeline.d
+	deleted:    build/consumers/diagnostic_timeline.o
+	deleted:    build/consumers/diagnostic_validate.d
+	deleted:    build/consumers/diagnostic_validate.o
+	deleted:    build/consumers/fix_surface_build.d
+	deleted:    build/consumers/fix_surface_build.o
+	deleted:    build/consumers/fix_surface_render.d
+	deleted:    build/consumers/fix_surface_render.o
+	deleted:    build/consumers/load_diagnostics.d
+	deleted:    build/consumers/load_diagnostics.o
+	deleted:    build/consumers/load_run.d
+	deleted:    build/consumers/load_run.o
+	deleted:    build/consumers/load_timeline.d
+	deleted:    build/consumers/load_timeline.o
+	deleted:    build/consumers/root_cause_extract.d
+	deleted:    build/consumers/root_cause_extract.o
+	deleted:    build/consumers/root_chain.d
+	deleted:    build/consumers/root_chain.o
+	deleted:    build/consumers/root_chain_build.d
+	deleted:    build/consumers/root_chain_build.o
+	deleted:    build/consumers/root_chain_render.d
+	deleted:    build/consumers/root_chain_render.o
+	deleted:    build/consumers/root_chain_role.d
+	deleted:    build/consumers/root_chain_role.o
+	deleted:    build/consumers/run_probe.d
+	deleted:    build/consumers/run_probe.o
+	deleted:    build/consumers/run_validate.d
+	deleted:    build/consumers/run_validate.o
+	deleted:    build/consumers/scope_align.d
+	deleted:    build/consumers/scope_align.o
+	deleted:    build/consumers/scope_align_render.d
+	deleted:    build/consumers/scope_align_render.o
+	deleted:    build/consumers/scope_graph_extract.d
+	deleted:    build/consumers/scope_graph_extract.o
+	deleted:    build/consumers/scope_signature.d
+	deleted:    build/consumers/scope_signature.o
+	deleted:    build/consumers/semantic_cause_diff.d
+	deleted:    build/consumers/semantic_cause_diff.o
+	deleted:    build/consumers/semantic_cause_render.d
+	deleted:    build/consumers/semantic_cause_render.o
+	deleted:    build/consumers/semantic_diff.d
+	deleted:    build/consumers/semantic_diff.o
+	deleted:    build/consumers/semantic_diff_render.d
+	deleted:    build/consumers/semantic_diff_render.o
+	deleted:    build/consumers/timeline_diff.d
+	deleted:    build/consumers/timeline_diff.o
+	deleted:    build/consumers/timeline_emit.d
+	deleted:    build/consumers/timeline_emit.o
+	deleted:    build/consumers/timeline_extract.d
+	deleted:    build/consumers/timeline_extract.o
+	deleted:    build/executor/executor.d
+	deleted:    build/executor/executor.o
+	deleted:    build/executor/memory.d
+	deleted:    build/executor/memory.o
+	deleted:    build/executor/scope.d
+	deleted:    build/executor/scope.o
+	deleted:    build/executor/stack.d
+	deleted:    build/executor/stack.o
+	deleted:    build/executor/step.d
+	deleted:    build/executor/step.o
+	deleted:    build/executor/universe.d
+	deleted:    build/executor/universe.o
+	deleted:    build/executor/world.d
+	deleted:    build/executor/world.o
+	deleted:    build/frontends/c/ast.d
+	deleted:    build/frontends/c/ast.o
+	deleted:    build/frontends/c/ast_dump.d
+	deleted:    build/frontends/c/ast_dump.o
+	deleted:    build/frontends/c/frontend.d
+	deleted:    build/frontends/c/frontend.o
+	deleted:    build/frontends/c/lexer.d
+	deleted:    build/frontends/c/lexer.o
+	deleted:    build/frontends/c/parser.d
+	deleted:    build/frontends/c/parser.o
+	deleted:    build/main.d
+	deleted:    build/main.o
+	deleted:    build/policy/default_policy.d
+	deleted:    build/policy/default_policy.o
+	deleted:    build/policy/policy.d
+	deleted:    build/policy/policy.o
+	deleted:    build/policy/policy_default.d
+	deleted:    build/policy/policy_default.o
+	modified:   liminal
+	modified:   src/analyzer/constraint.h
+	modified:   src/analyzer/constraint_diagnostic.h
+	modified:   src/analyzer/diagnostic.h
+	deleted:    src/common/types.h
+	deleted:    src/common/util.h
+	modified:   src/consumers/diagnostic_diff.h
+	modified:   src/consumers/diagnostic_render.h
+	modified:   src/consumers/diagnostic_timeline.h
+	modified:   src/consumers/diagnostic_validate.h
+	modified:   src/consumers/fix_surface.h
+	modified:   src/policy/policy_default.h
+	deleted:    test/01-01-2026-12-26-01/0-skeleton/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-26-01/0-skeleton/analysis/meta.json
+	deleted:    test/01-01-2026-12-26-01/0-skeleton/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-26-01/1-variable/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-26-01/1-variable/analysis/meta.json
+	deleted:    test/01-01-2026-12-26-01/1-variable/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-26-01/2-reference-var/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-26-01/2-reference-var/analysis/meta.json
+	deleted:    test/01-01-2026-12-26-01/2-reference-var/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-32-50/0-skeleton/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-32-50/0-skeleton/analysis/meta.json
+	deleted:    test/01-01-2026-12-32-50/0-skeleton/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-32-50/1-variable/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-32-50/1-variable/analysis/meta.json
+	deleted:    test/01-01-2026-12-32-50/1-variable/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-32-50/2-reference-var/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-32-50/2-reference-var/analysis/meta.json
+	deleted:    test/01-01-2026-12-32-50/2-reference-var/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-32-50/4-shadowing/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-32-50/4-shadowing/analysis/meta.json
+	deleted:    test/01-01-2026-12-32-50/4-shadowing/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-36-43/0-skeleton/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-36-43/0-skeleton/analysis/meta.json
+	deleted:    test/01-01-2026-12-36-43/0-skeleton/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-36-43/1-shadowing/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-36-43/1-shadowing/analysis/meta.json
+	deleted:    test/01-01-2026-12-36-43/1-shadowing/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-36-43/1-variable/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-36-43/1-variable/analysis/meta.json
+	deleted:    test/01-01-2026-12-36-43/1-variable/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-36-43/2-reference-var/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-36-43/2-reference-var/analysis/meta.json
+	deleted:    test/01-01-2026-12-36-43/2-reference-var/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-37-15/0-skeleton/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-37-15/0-skeleton/analysis/meta.json
+	deleted:    test/01-01-2026-12-37-15/0-skeleton/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-37-15/1-shadowing/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-37-15/1-shadowing/analysis/meta.json
+	deleted:    test/01-01-2026-12-37-15/1-shadowing/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-37-15/1-variable/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-37-15/1-variable/analysis/meta.json
+	deleted:    test/01-01-2026-12-37-15/1-variable/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-37-15/2-reference-var/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-37-15/2-reference-var/analysis/meta.json
+	deleted:    test/01-01-2026-12-37-15/2-reference-var/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-58-41/0-skeleton/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-58-41/0-skeleton/analysis/meta.json
+	deleted:    test/01-01-2026-12-58-41/0-skeleton/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-58-41/1-shadowing/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-58-41/1-shadowing/analysis/meta.json
+	deleted:    test/01-01-2026-12-58-41/1-shadowing/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-58-41/1-variable/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-58-41/1-variable/analysis/meta.json
+	deleted:    test/01-01-2026-12-58-41/1-variable/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-12-58-41/2-reference-var/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-12-58-41/2-reference-var/analysis/meta.json
+	deleted:    test/01-01-2026-12-58-41/2-reference-var/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-14-14-45/0-skeleton/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-14-14-45/0-skeleton/analysis/meta.json
+	deleted:    test/01-01-2026-14-14-45/0-skeleton/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-14-14-45/1-shadowing/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-14-14-45/1-shadowing/analysis/meta.json
+	deleted:    test/01-01-2026-14-14-45/1-shadowing/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-14-14-45/1-variable/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-14-14-45/1-variable/analysis/meta.json
+	deleted:    test/01-01-2026-14-14-45/1-variable/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-14-14-45/2-reference-var/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-14-14-45/2-reference-var/analysis/meta.json
+	deleted:    test/01-01-2026-14-14-45/2-reference-var/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-14-51-09/0-skeleton/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-14-51-09/0-skeleton/analysis/meta.json
+	deleted:    test/01-01-2026-14-51-09/0-skeleton/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-14-51-09/1-shadowing/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-14-51-09/1-shadowing/analysis/meta.json
+	deleted:    test/01-01-2026-14-51-09/1-shadowing/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-14-51-09/1-variable/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-14-51-09/1-variable/analysis/meta.json
+	deleted:    test/01-01-2026-14-51-09/1-variable/analysis/timeline.ndjson
+	deleted:    test/01-01-2026-14-51-09/2-reference-var/analysis/diagnostics.ndjson
+	deleted:    test/01-01-2026-14-51-09/2-reference-var/analysis/meta.json
+	deleted:    test/01-01-2026-14-51-09/2-reference-var/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-11-19/0-skeleton/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-11-19/0-skeleton/analysis/meta.json
+	deleted:    test/31-12-2025-22-11-19/0-skeleton/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-11-19/1-variable/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-11-19/1-variable/analysis/meta.json
+	deleted:    test/31-12-2025-22-11-19/1-variable/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-11-19/2-reference-var/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-11-19/2-reference-var/analysis/meta.json
+	deleted:    test/31-12-2025-22-11-19/2-reference-var/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-11-19/3-redeclaration/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-11-19/3-redeclaration/analysis/meta.json
+	deleted:    test/31-12-2025-22-11-19/3-redeclaration/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-11-19/4-shadowing/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-11-19/4-shadowing/analysis/meta.json
+	deleted:    test/31-12-2025-22-11-19/4-shadowing/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-11-19/5-use-before-declare/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-11-19/5-use-before-declare/analysis/meta.json
+	deleted:    test/31-12-2025-22-11-19/5-use-before-declare/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-11-19/6-redeclaration/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-11-19/6-redeclaration/analysis/meta.json
+	deleted:    test/31-12-2025-22-11-19/6-redeclaration/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-33-20/0-skeleton/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-33-20/0-skeleton/analysis/meta.json
+	deleted:    test/31-12-2025-22-33-20/0-skeleton/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-33-20/1-variable/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-33-20/1-variable/analysis/meta.json
+	deleted:    test/31-12-2025-22-33-20/1-variable/analysis/timeline.ndjson
+	deleted:    test/31-12-2025-22-33-20/2-reference-var/analysis/diagnostics.ndjson
+	deleted:    test/31-12-2025-22-33-20/2-reference-var/analysis/meta.json
+	deleted:    test/31-12-2025-22-33-20/2-reference-var/analysis/timeline.ndjson
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	CodeStyleGuide.md
+	RoadMap.md
+	artifacts/liminal_flat.min.c
+	build/analyzer/artifact_emi.d
+	build/analyzer/artifact_emi.o
+	build/analyzer/constraint_declaratio.d
+	build/analyzer/constraint_declaratio.o
+	build/analyzer/constraint_diagnosti.d
+	build/analyzer/constraint_diagnosti.o
+	build/analyzer/constraint_engin.d
+	build/analyzer/constraint_engin.o
+	build/analyzer/constraint_scop.d
+	build/analyzer/constraint_scop.o
+	build/analyzer/constraint_variabl.d
+	build/analyzer/constraint_variabl.o
+	build/analyzer/diagnosti.d
+	build/analyzer/diagnosti.o
+	build/analyzer/diagnostic_dum.d
+	build/analyzer/diagnostic_dum.o
+	build/analyzer/diagnostic_i.d
+	build/analyzer/diagnostic_i.o
+	build/analyzer/diagnostic_projec.d
+	build/analyzer/diagnostic_projec.o
+	build/analyzer/diagnostic_serializ.d
+	build/analyzer/diagnostic_serializ.o
+	build/analyzer/lifetim.d
+	build/analyzer/lifetim.o
+	build/analyzer/trac.d
+	build/analyzer/trac.o
+	build/analyzer/us.d
+	build/analyzer/us.o
+	build/analyzer/validat.d
+	build/analyzer/validat.o
+	build/analyzer/variable_lifetim.d
+	build/analyzer/variable_lifetim.o
+	build/commands/cmd_analyz.d
+	build/commands/cmd_analyz.o
+	build/commands/cmd_dif.d
+	build/commands/cmd_dif.o
+	build/commands/cmd_polic.d
+	build/commands/cmd_polic.o
+	build/commands/command_dispatc.d
+	build/commands/command_dispatc.o
+	build/common/aren.d
+	build/common/aren.o
+	build/common/f.d
+	build/common/f.o
+	build/common/fil.d
+	build/common/fil.o
+	build/common/hashma.d
+	build/common/hashma.o
+	build/consumers/cause_ke.d
+	build/consumers/cause_ke.o
+	build/consumers/cause_key_extrac.d
+	build/consumers/cause_key_extrac.o
+	build/consumers/convergence_buil.d
+	build/consumers/convergence_buil.o
+	build/consumers/convergence_ma.d
+	build/consumers/convergence_ma.o
+	build/consumers/convergence_rende.d
+	build/consumers/convergence_rende.o
+	build/consumers/diagnostic_ancho.d
+	build/consumers/diagnostic_ancho.o
+	build/consumers/diagnostic_dif.d
+	build/consumers/diagnostic_dif.o
+	build/consumers/diagnostic_rende.d
+	build/consumers/diagnostic_rende.o
+	build/consumers/diagnostic_stat.d
+	build/consumers/diagnostic_stat.o
+	build/consumers/diagnostic_stats_emi.d
+	build/consumers/diagnostic_stats_emi.o
+	build/consumers/diagnostic_timelin.d
+	build/consumers/diagnostic_timelin.o
+	build/consumers/diagnostic_validat.d
+	build/consumers/diagnostic_validat.o
+	build/consumers/fix_surface_buil.d
+	build/consumers/fix_surface_buil.o
+	build/consumers/fix_surface_rende.d
+	build/consumers/fix_surface_rende.o
+	build/consumers/load_diagnostic.d
+	build/consumers/load_diagnostic.o
+	build/consumers/load_ru.d
+	build/consumers/load_ru.o
+	build/consumers/load_timelin.d
+	build/consumers/load_timelin.o
+	build/consumers/root_cause_extrac.d
+	build/consumers/root_cause_extrac.o
+	build/consumers/root_chai.d
+	build/consumers/root_chai.o
+	build/consumers/root_chain_buil.d
+	build/consumers/root_chain_buil.o
+	build/consumers/root_chain_rende.d
+	build/consumers/root_chain_rende.o
+	build/consumers/root_chain_rol.d
+	build/consumers/root_chain_rol.o
+	build/consumers/run_prob.d
+	build/consumers/run_prob.o
+	build/consumers/run_validat.d
+	build/consumers/run_validat.o
+	build/consumers/scope_alig.d
+	build/consumers/scope_alig.o
+	build/consumers/scope_align_rende.d
+	build/consumers/scope_align_rende.o
+	build/consumers/scope_graph_extrac.d
+	build/consumers/scope_graph_extrac.o
+	build/consumers/scope_signatur.d
+	build/consumers/scope_signatur.o
+	build/consumers/semantic_cause_dif.d
+	build/consumers/semantic_cause_dif.o
+	build/consumers/semantic_cause_rende.d
+	build/consumers/semantic_cause_rende.o
+	build/consumers/semantic_dif.d
+	build/consumers/semantic_dif.o
+	build/consumers/semantic_diff_rende.d
+	build/consumers/semantic_diff_rende.o
+	build/consumers/timeline_dif.d
+	build/consumers/timeline_dif.o
+	build/consumers/timeline_emi.d
+	build/consumers/timeline_emi.o
+	build/consumers/timeline_extrac.d
+	build/consumers/timeline_extrac.o
+	build/executor/executo.d
+	build/executor/executo.o
+	build/executor/memor.d
+	build/executor/memor.o
+	build/executor/scop.d
+	build/executor/scop.o
+	build/executor/stac.d
+	build/executor/stac.o
+	build/executor/ste.d
+	build/executor/ste.o
+	build/executor/univers.d
+	build/executor/univers.o
+	build/executor/worl.d
+	build/executor/worl.o
+	build/frontends/c/as.d
+	build/frontends/c/as.o
+	build/frontends/c/ast_dum.d
+	build/frontends/c/ast_dum.o
+	build/frontends/c/fronten.d
+	build/frontends/c/fronten.o
+	build/frontends/c/lexe.d
+	build/frontends/c/lexe.o
+	build/frontends/c/parse.d
+	build/frontends/c/parse.o
+	build/mai.d
+	build/mai.o
+	build/policy/default_polic.d
+	build/policy/default_polic.o
+	build/policy/polic.d
+	build/policy/polic.o
+	build/policy/policy_defaul.d
+	build/policy/policy_defaul.o
+	loom.sh
+	status.txt
+	test/02-01-2026-13-39-47/
+	test_loom.sh
+	tmp/
+	tools/
+
+no changes added to commit (use "git add" and/or "git commit -a")

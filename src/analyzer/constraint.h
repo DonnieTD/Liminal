@@ -1,4 +1,6 @@
-#pragma once
+#ifndef LIMINAL_ANALYZER_CONSTRAINT_H
+#define LIMINAL_ANALYZER_CONSTRAINT_H
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -42,3 +44,5 @@ typedef struct ConstraintArtifact {
     Constraint *items;
     size_t count;
 } ConstraintArtifact;
+
+#endif /* LIMINAL_ANALYZER_CONSTRAINT_H */

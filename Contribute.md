@@ -434,3 +434,41 @@ validate determinism
 test cross-run diffing
 
 audit semantic evolution
+
+## Coding Standards
+
+Liminal enforces a strict, machine-checkable coding standard.
+
+All contributors **MUST** run the `standardise` tool before submitting changes.
+
+### Required Checks
+
+- Header include guards
+- Standalone tool purity
+- Dependency boundaries
+
+### How to Run
+
+```sh
+make check
+```
+
+This command runs the standards checker over:
+
+- ./src
+
+- ./tools
+
+Submissions that fail standardisation checks will be rejected.
+
+## Regenerating the Style Guide
+
+The canonical style rules are rendered directly from the enforcement tool.
+
+To regenerate the standards documentation:
+
+```sh
+    make regen-standards
+```
+
+Manual edits inside the generated section of CodeStyleGuide.md are not permitted.

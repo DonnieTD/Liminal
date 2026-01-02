@@ -1,4 +1,6 @@
-#pragma once
+#ifndef LIMINAL_CONSUMERS_DIAGNOSTIC_DIFF_H
+#define LIMINAL_CONSUMERS_DIAGNOSTIC_DIFF_H
+
 #include "analyzer/diagnostic.h"
 
 typedef enum {
@@ -18,3 +20,5 @@ size_t diagnostic_diff(
     DiagnosticDiff *out,
     size_t cap
 );
+
+#endif /* LIMINAL_CONSUMERS_DIAGNOSTIC_DIFF_H */

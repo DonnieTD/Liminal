@@ -1,4 +1,8 @@
-#pragma once
+#ifndef LIMINAL_CONSUMERS_DIAGNOSTIC_TIMELINE_H
+#define LIMINAL_CONSUMERS_DIAGNOSTIC_TIMELINE_H
+
 #include <stdio.h>
 
 void diagnostic_timeline_render(FILE *in, FILE *out);
+
+#endif /* LIMINAL_CONSUMERS_DIAGNOSTIC_TIMELINE_H */

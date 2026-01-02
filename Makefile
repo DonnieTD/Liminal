@@ -21,9 +21,9 @@ DEP := $(OBJ:.o=.d)
 # Build rules
 # ============================================================
 
-all: $(BIN)
+all: check $(BIN)
 
-$(BIN): $(OBJ)
+$(BIN): check $(OBJ)
 	$(CC) $(OBJ) $(LDFLAGS) -o $@
 
 $(BUILD)/%.o: src/%.c
@@ -142,35 +142,21 @@ $(FLATTEN):
 # ============================================================
 # Minified flattened single-file build (repo-correct)
 # ============================================================
+TOOLS_DIR := build/tools
+FLATTENER := $(TOOLS_DIR)/liminal-flatten
 
 FLATTEN_MIN := artifacts/liminal_flat.min.c
+SRC_DIRS := src/common src/executor src/analyzer src/consumers \
+            src/frontends src/commands src/policy src/main.c
+
+$(FLATTENER): tools/flatten/flatten.c
+	@mkdir -p $(TOOLS_DIR)
+	$(CC) -std=c99 -O2 $< -o $@
 
 .PHONY: flatten-min
-
-flatten-min: $(FLATTEN_MIN)
-
-$(FLATTEN_MIN):
+flatten-min: $(FLATTENER)
 	@mkdir -p artifacts
-	@echo "/* LIMINAL_FLAT_MIN $$(date -u +%Y%m%dT%H%M%SZ) */" > $@
-
-	@echo "/* -------- HEADERS -------- */" >> $@
-	@for dir in common executor analyzer consumers frontends commands policy; do \
-		find src/$$dir -name '*.h' -type f | sort | while read f; do \
-			echo "//@header $$f" >> $@; \
-			sed '/^[[:space:]]*$$/d' $$f >> $@; \
-		done; \
-	done
-
-	@echo "/* -------- SOURCES -------- */" >> $@
-	@for dir in common executor analyzer consumers frontends commands policy; do \
-		find src/$$dir -name '*.c' -type f | sort | while read f; do \
-			echo "//@source $$f" >> $@; \
-			sed '/^[[:space:]]*$$/d' $$f >> $@; \
-		done; \
-	done
-
-	@echo "//@source src/main.c" >> $@
-	@sed '/^[[:space:]]*$$/d' src/main.c >> $@
+	$(FLATTENER) --out $(FLATTEN_MIN) $(SRC_DIRS)
 
 # ============================================================
 # Flattened samples (single-file per sample)
@@ -190,3 +176,59 @@ flatten-samples:
 		echo "" >> $$out; \
 		cat $$f >> $$out; \
 	done
+
+
+# ============================================================
+# Standardise tool
+# ============================================================
+
+STANDARDISE := tools/standardise/standardise
+STYLE_GUIDE := CodeStyleGuide.md
+
+.PHONY: check regen-standards standardise
+
+check: $(STANDARDISE)
+	@echo "Running standardisation checks..."
+	@$(STANDARDISE) src
+	@$(STANDARDISE) tools
+
+regen-standards: $(STANDARDISE)
+	@echo "Regenerating CodeStyleGuide.md..."
+	@if [ ! -f $(STYLE_GUIDE) ]; then \
+		echo "Bootstrapping CodeStyleGuide.md..."; \
+		$(STANDARDISE) --init-style-guide > $(STYLE_GUIDE); \
+	else \
+		awk '\
+			/<!-- STANDARDISE:BEGIN -->/ { \
+				print; \
+				system("$(STANDARDISE) --emit-style-guide"); \
+				skip=1; \
+				next \
+			} \
+			/<!-- STANDARDISE:END -->/ { \
+				skip=0; \
+				print; \
+				next \
+			} \
+			!skip { print } \
+		' $(STYLE_GUIDE) > $(STYLE_GUIDE).tmp && \
+		mv $(STYLE_GUIDE).tmp $(STYLE_GUIDE); \
+	fi
+
+standardise: check regen-standards
+
+
+# ============================================================
+# Loom verification test (deterministic, temp-only)
+# ============================================================
+
+LOOM_TEST_ROOT := tmp/loom/make
+LOOM_TEST_DIR  := $(LOOM_TEST_ROOT)/run
+
+.PHONY: loom-test
+
+loom-test:
+	@$(MAKE) test \
+		TEST_ROOT=tmp/loom/make \
+		TEST_RUN=run \
+		TEST_DIR=tmp/loom/make/run

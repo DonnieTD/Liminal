@@ -1,4 +1,6 @@
-#pragma once
+#ifndef LIMINAL_ANALYZER_DIAGNOSTIC_H
+#define LIMINAL_ANALYZER_DIAGNOSTIC_H
+
 #include <stdint.h>
 #include <stddef.h>
 #include "analyzer/source_anchor.h"
@@ -15,9 +17,6 @@ typedef enum DiagnosticKind {
     /* Sentinel */
     DIAG_KIND_MAX
 } DiagnosticKind;
-
-
-
 
 typedef struct Diagnostic {
     DiagnosticId id;
@@ -41,5 +40,4 @@ void diagnostic_dump(const DiagnosticArtifact *a);
 
 const char *diagnostic_kind_name(DiagnosticKind k);
 
-
-
+#endif /* LIMINAL_ANALYZER_DIAGNOSTIC_H */

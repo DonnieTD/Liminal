@@ -1,278 +1,134 @@
-# Semantic Execution Engine (Liminal)
+# Liminal
+
+> A semantic analysis engine for C programs  
+> Built to explain what code does — not just whether it compiles.
+
+---
 
 ## Overview
 
-Liminal is a semantic execution and analysis engine for C.
+**Liminal** is a semantic execution and analysis engine for C.
 
-It is NOT:
-- a compiler
-- a traditional virtual machine
-- an IR pipeline
-- a static analyzer
-- a symbolic executor
+Unlike traditional compilers or static analyzers, Liminal does not stop at syntax or type correctness.  
+It models **program behavior as a timeline**, applies **policy constraints**, and emits **semantic artifacts** that explain *why* a program is valid, invalid, or dangerous.
 
-Instead, Liminal treats a program as a concrete trajectory through semantic
-state over time.
+Liminal is designed to be:
 
-A program is executed exactly once, producing a complete semantic history.
-All understanding, reasoning, validation, and visualization happens
-after execution.
+- Deterministic
+- Artifact-driven
+- Policy-aware
+- Auditable
 
-Execution is separated from analysis.
-Analysis is separated from presentation.
-Artifacts are separated from policy.
+This repository contains not just Liminal itself, but a complete **semantic toolchain** used to build, normalize, flatten, verify, and compare program meaning.
 
 ---
 
-## Core Idea
+## Core Concepts
 
-Programs are not instruction streams.
-Programs are trajectories through semantic reality.
+### 1. Programs as Executions (Not Just Trees)
 
-Execution is modeled as a sequence of immutable semantic states indexed
-by time.
+Liminal treats a program as something that **happens over time**.
 
-Bugs, undefined behavior, and exploits are treated as pathological
-transitions in that sequence, not as crashes, warnings, or abstract
-violations.
+Every input program is transformed into:
 
-The engine answers one question:
+- An **AST** (existence)
+- An **execution timeline** (time)
+- A **semantic world model** (meaning)
 
-How did semantic reality evolve over time, and where did it stop being smooth?
+This allows Liminal to reason about:
 
----
-
-## Architecture Summary
-
-The system is split into strictly separated stages:
-
-1. Frontend / Parser
-2. Executor
-3. Analyzer
-4. Constraint Engine
-5. Artifact Layer
-6. Visualization
-7. Cross-Run Reasoning
-8. Semantic Surface Construction
-
-Data flows strictly forward.
-No stage mutates the output of a previous stage.
+- Variable lifetimes
+- Scope boundaries
+- Declaration vs use ordering
+- Shadowing
+- Redeclaration
+- Policy violations
 
 ---
 
-## Stage 1: Frontend / Parser
+### 2. Semantic Artifacts (The Primary Output)
 
-Responsibility:
-What exists?
+Liminal does not “print errors”.
 
-The frontend parses C source code into an abstract syntax tree (AST).
+It emits **artifacts**.
 
-The AST is:
-- immutable
-- execution-agnostic
-- shared by all runs
-- free of semantic effects
+Each run produces a structured artifact directory containing:
 
-Primary artifact:
-- ASTProgram (arena-owned, stable node IDs)
+- `meta.json` — run metadata
+- `timeline.ndjson` — ordered execution events
+- `diagnostics.ndjson` — semantic violations and observations
 
----
+These artifacts are:
+- Stable
+- Diffable
+- Machine-readable
+- Human-auditable
 
-## Stage 2: Executor
-
-Responsibility:
-In what order did existence occur?
-
-The executor:
-- starts from an empty initial state
-- walks the AST deterministically
-- follows exactly one concrete execution path
-- never speculates
-- never explores alternatives
-
-For each semantic event:
-- one AST node is involved
-- a new World is created
-- the World is linked to the previous World
-- the semantic cause is recorded as a Step
-
-Primary artifacts:
-- World timeline
-- Step stream
+They are the canonical output of the system.
 
 ---
 
-## World & Universe
+### 3. Policy-Driven Semantics
 
-A World represents the complete semantic state at a single moment in time.
+Semantic correctness is defined by **policy**, not hard-coded rules.
 
-Worlds are immutable once created.
+Policies define constraints such as:
 
-The Universe:
-- owns the full World timeline
-- advances execution by creating Worlds
-- enables backward traversal for analysis
+- Variables must be declared before use
+- Redeclarations are forbidden
+- Shadowing is reported (or denied)
+- Execution may be conditionally allowed or denied
 
-The World timeline functions as a bidirectional semantic write-ahead log:
-- forward traversal: execution
-- backward traversal: analysis
+Policies are enforced during execution, not after the fact.
 
 ---
 
-## Stage 3: Analyzer
+## Repository Structure
 
-Responsibility:
-What structural facts can be derived from this execution?
+High-level structure (build and temp artifacts omitted):
 
-Consumes the World timeline and derives semantic facts without mutation.
+```sh
+src/ Core engine (frontend, executor, analyzer)
+tools/ Auxiliary semantic tools
+├── loom/ Authoritative build & orchestration tool
+├── flatten/ Single-file source flattener
+└── standardise/ Code-style normalization tool
+artifacts/ Flattened and generated reference outputs
+samples/ Semantic test programs
+loom.sh Canonical entrypoint for all operations
+```
 
-Primary artifacts:
-- ScopeLifetime
-- VariableLifetime
-- Use reports
-- Structural violations
 
----
+## The Toolchain
 
-## Stage 4: Constraint Engine
+This repository contains **four cooperating tools**:
 
-Responsibility:
-What semantic rules must hold?
+### 1. `liminal` — Semantic Engine
 
-Constraints express invariant facts about semantic reality.
+The core binary.
 
-Examples:
-- a variable use must have a declaration
-- a declaration may not redeclare in the same scope
-- a declaration may not shadow a parent binding
-- a use may not occur after scope exit
+Responsible for:
+- Parsing C
+- Executing semantic timelines
+- Enforcing policy
+- Emitting artifacts
 
-Primary artifacts:
-- ConstraintArtifact
-- ConstraintKind
-- Constraint sets
+Example:
 
----
+```sh
+  ./liminal run sample.c --emit-artifacts --emit-timeline
+```
 
-## Stage 5: Artifact Layer (DONE)
+### 2. `loom` — Orchestration & Authority
 
-Responsibility:
-Make meaning stable.
+Loom is the **authoritative build and execution controller**.
 
-This layer:
-- assigns stable identity to semantic facts
-- anchors diagnostics to source structure
-- defines serializable, replayable artifacts
+Responsibilities:
+- Rebuild tools deterministically
+- Run semantic tests
+- Compare outputs against Make
+- Enforce reproducibility
 
-Primary artifacts:
-- DiagnosticArtifact
-- DiagnosticId (stable across runs)
-- NDJSON streams (diagnostics, timelines)
+Loom replaces Make over time.
 
-Artifacts are deterministic, reproducible, and consumer-agnostic.
-
----
-
-## Stage 6: Visualization / Timeline Emission (DONE)
-
-Responsibility:
-Make time explicit.
-
-Capabilities:
-- linear timeline emission
-- step-by-step temporal traces
-- AST ↔ Step ↔ Time correlation
-- policy-gated execution outcomes
-
-All visualization is derived solely from artifacts.
-
----
-
-## Stage 7: Cross-Run Reasoning (DONE)
-
-Responsibility:
-Compare semantic realities across executions.
-
-Stage 7 operates exclusively on emitted artifacts.
-It never:
-- re-executes code
-- parses source
-- inspects ASTs
-
-Concrete guarantees achieved:
-
-- Two runs with no semantic change produce an empty diff
-- A single semantic change produces:
-  - one stable DiagnosticId delta
-  - one localized timeline divergence
-- Running diff twice yields identical output byte-for-byte
-- No consumer requires AST access
-- No consumer requires execution
-
-Stage 7 establishes **semantic comparability** as a hard invariant.
-
----
-
-## Stage 8: Semantic Surface Construction (DONE)
-
-Responsibility:
-Turn semantic facts into actionable structures.
-
-Stage 8 derives higher-order semantic objects ephemerally from artifacts:
-
-- Root Chains (causal paths per diagnostic)
-- Role assignment along chains
-- Convergence mapping between diagnostics
-- Minimal Fix Surfaces (smallest semantic change sets)
-
-Properties:
-- no mutation
-- no persistence
-- arena-allocated
-- analysis-only
-
-This stage does not alter semantics.
-It **interprets** them.
-
----
-
-## Post-Stage 8 Development Phases
-
-Progress now follows semantic expansion, not feature accretion.
-
-### Phase A: Cross-Run Calibration
-Validate stability across controlled change sets.
-
-### Phase B: Semantic Expansion
-- Memory semantics (existence, not bytes)
-- Control-flow shape (time, not logic)
-
-### Phase C: Syntax Expansion
-Grammar grows only when semantics exist.
-
-### Phase D: Exploit-Class Coverage
-Track exploit surface deltas over time.
-
----
-
-## Roadmap Status
-
-- Stage 1: DONE
-- Stage 2: DONE
-- Stage 3: DONE
-- Stage 4: DONE
-- Stage 5: DONE
-- Stage 6: DONE
-- Stage 7: DONE
-- Stage 8: DONE
-- Phase A: NEXT
-- Phase B: PLANNED
-- Phase C: PLANNED
-- Phase D: PLANNED
-
----
-
-## One-Line Summary
-
-Programs are executed once to produce semantic history.
-Liminal turns that history into stable, comparable, and actionable meaning.
+Example:
