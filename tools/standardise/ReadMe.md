@@ -166,7 +166,14 @@ They operate at different layers:
 | Flatten     | Source      | Transparency |
 | Standardise | Artifacts   | Determinism  |
 
-| Tool        | Operates On | Purpose      |
-| ----------- | ----------- | ------------ |
-| Flatten     | Source      | Transparency |
-| Standardise | Artifacts   | Determinism  |
+Together, they make proof possible.
+
+## Mental Model
+
+Think of Standardise as:
+
+- a calibration weight
+- a reference clock
+- a lab-controlled environment
+
+It removes noise so that truth can be measured.

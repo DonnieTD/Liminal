@@ -130,3 +130,106 @@ Produces:
 artifacts/samples/*.flat.c
 ```
 
+
+Each sample program becomes:
+- A single self-contained file
+- Preserving original semantics
+- Suitable for:
+  - demonstrations
+  - reproduction
+  - sharing
+
+---
+
+## Ordering Guarantees
+
+Flatten enforces strict ordering:
+
+1. Headers first
+2. Source files second
+3. Sorted by path
+4. Explicit section markers
+
+Example marker:
+
+/* === src/analyzer/diagnostic.c ============================ */
+
+
+This allows:
+- binary diffing
+- semantic diffing
+- structural comparison
+
+Nothing is implicit.
+
+---
+
+## Determinism
+
+Flatten output is deterministic **by design**.
+
+Given the same source tree:
+- Output bytes are identical
+- Ordering is identical
+- Section boundaries are identical
+
+If Flatten output changes, it means **the system changed**.
+
+---
+
+## Flatten vs Preprocessing
+
+Flatten is **not** the C preprocessor.
+
+| Aspect            | Preprocessor | Flatten |
+|-------------------|--------------|---------|
+| Expands macros    | Yes          | No |
+| Resolves includes | Yes          | No |
+| Preserves layout  | No           | Yes |
+| Human readable    | No           | Yes |
+| Semantic safe     | Sometimes    | Always |
+
+Flatten operates *before* compilation, not inside it.
+
+---
+
+## Security & Audit Use
+
+Flatten makes these claims possible:
+
+- “This binary came from *this* code”
+- “There is no hidden logic”
+- “This system can be reviewed end-to-end”
+
+For security tooling, this is non-optional.
+
+Flatten is the **paper trail**.
+
+---
+
+## Relationship to Loom
+
+Flatten is never run directly.
+
+Loom decides:
+- when flattening is allowed
+- where output goes
+- which variant is produced
+
+Flatten obeys.
+Loom governs.
+
+---
+
+## Mental Model
+
+Think of Flatten as:
+
+- a microscope slide
+- a court exhibit
+- a notarized snapshot
+
+If Loom is law, and Liminal is meaning,
+**Flatten is truth in plain sight**.
+
+---

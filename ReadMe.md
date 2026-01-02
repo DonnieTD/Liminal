@@ -132,3 +132,94 @@ Responsibilities:
 Loom replaces Make over time.
 
 Example:
+
+```sh
+./loom.sh test
+./loom.sh verify-make
+```
+
+### 3. `flatten` — Single-File Source Generator
+
+Flattens the entire project into a single C file.
+
+Used for:
+- Auditing
+- Review
+- LLM ingestion
+- Long-term archival
+
+Outputs live in `artifacts/`.
+
+---
+
+### 4. `standardise` — Code Normalization
+
+Enforces and regenerates the project’s code style rules.
+
+Used to:
+- Prevent stylistic drift
+- Ensure deterministic formatting
+- Generate `CodeStyleGuide.md`
+
+---
+
+## Determinism & Verification
+
+Liminal is built to be **provably reproducible**.
+
+- Deterministic execution modes
+- Temporary-only test artifacts
+- Semantic diffs between Make and Loom
+- Non-semantic metadata normalization
+
+Verification command:
+
+```sh
+  ./loom.sh verify-make
+```
+
+
+A successful run guarantees **semantic equivalence** between build systems.
+
+---
+
+## What Liminal Is Not
+
+- ❌ Not a compiler
+- ❌ Not a linter
+- ❌ Not a type checker
+- ❌ Not a formatter
+
+Liminal answers a different question:
+
+> *“What does this program actually do — and is that allowed?”*
+
+---
+
+## Status
+
+This project is under **active, rapid development**.
+
+The architecture is stable.  
+The surface area is expanding.
+
+Roadmap and future direction live in `RoadMap.md`.
+
+---
+
+## License
+
+See `LICENSE`.
+
+---
+
+## Contributing
+
+See `Contribute.md`.
+
+
+---
+
+## Tools
+
+See `Tools.md`
