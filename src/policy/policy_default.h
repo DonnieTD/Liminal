@@ -1,6 +1,0 @@
-#ifndef LIMINAL_POLICY_POLICY_DEFAULT_H
-#define LIMINAL_POLICY_POLICY_DEFAULT_H
-
-Policy policy_default(void);
-
-#endif /* LIMINAL_POLICY_POLICY_DEFAULT_H */

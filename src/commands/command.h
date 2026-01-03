@@ -1,6 +1,10 @@
 #ifndef LIMINAL_COMMAND_H
 #define LIMINAL_COMMAND_H
 
+#include "./analyze/analyze.h"
+#include "./diff/diff.h"
+#include "./policy/policy.h"
+
 typedef int (*command_fn)(int argc, char **argv);
 
 typedef struct {

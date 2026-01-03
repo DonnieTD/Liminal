@@ -1,0 +1,8 @@
+#ifndef LIMINAL_DIAGNOSTIC_ARTIFACT_H
+#define LIMINAL_DIAGNOSTIC_ARTIFACT_H
+
+
+#include "./emit.h"
+
+
+#endif /* LIMINAL_DIAGNOSTIC_ARTIFACT_H */

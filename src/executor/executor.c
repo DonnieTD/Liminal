@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include "executor/executor.h"
-#include "executor/world.h"
-#include "executor/step.h"
-#include "frontends/c/ast.h"
+#include "frontends/frontends.h"
 
 /* Forward */
 static void exec_node(Universe *u,

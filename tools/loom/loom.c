@@ -834,7 +834,7 @@ static void loom_flatten_min(void) {
         "src/frontends",
         "src/commands",
         "src/policy",
-        "src/main.c",
+        "src/liminal.c",
         NULL
     };
     if (spawn_wait(argv_run, 1) != 0) exit(1);

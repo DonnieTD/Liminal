@@ -2,7 +2,7 @@
 #define LIMINAL_POLICY_H
 
 #include <stddef.h>
-#include "analyzer/diagnostic.h"
+#include "../analyzer/analyzer.h"
 
 typedef struct Policy {
     unsigned char deny_kind[DIAG_KIND_MAX];
@@ -21,6 +21,11 @@ typedef struct PolicyRule {
     size_t max_count;   /* 0 = unlimited */
     int deny;           /* boolean */
 } PolicyRule;
+
+Policy policy_default(void);
+
+extern const struct Policy LIMINAL_DEFAULT_POLICY;
+
 /*
  * Apply policy to diagnostics.
  *

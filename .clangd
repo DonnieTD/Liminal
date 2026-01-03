@@ -1,0 +1,9 @@
+CompileFlags:
+  Add:
+    - -Isrc
+  Fallback:
+    - -std=c99
+    - -x
+    - c
+    - -Isrc
+

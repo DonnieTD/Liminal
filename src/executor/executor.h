@@ -1,8 +1,17 @@
 #ifndef LIMINAL_EXECUTOR_H
 #define LIMINAL_EXECUTOR_H
 
-#include "frontends/c/ast.h"
-#include "executor/universe.h"
+
+#include "./memory/memory.h"
+#include "./scope/scope.h"
+#include "./stack/stack.h"
+#include "./step/step.h"
+#include "./storage/storage.h"
+#include "./universe/universe.h"
+#include "./variable/variable.h"
+#include "./world/world.h"
+#include "../frontends/frontends.h"
+
 
 /*
  * Executor entry point

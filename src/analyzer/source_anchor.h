@@ -20,4 +20,6 @@ typedef struct SourceAnchor {
     uint32_t    col;
 } SourceAnchor;
 
+SourceAnchor *anchor_from_origin(void *origin);
+
 #endif /* LIMINAL_SOURCE_ANCHOR_H */

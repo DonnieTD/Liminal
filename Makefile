@@ -147,7 +147,7 @@ FLATTENER := $(TOOLS_DIR)/liminal-flatten
 
 FLATTEN_MIN := artifacts/liminal_flat.min.c
 SRC_DIRS := src/common src/executor src/analyzer src/consumers \
-            src/frontends src/commands src/policy src/main.c
+            src/frontends src/commands src/policy src/liminal.c
 
 $(FLATTENER): tools/flatten/flatten.c
 	@mkdir -p $(TOOLS_DIR)
